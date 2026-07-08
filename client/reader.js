@@ -166,6 +166,7 @@
         : (m.progress && !m.progress.completed && m.progress.page > 0 && m.progress.page < m.pages)
           ? m.progress.page : 0;
       els.thumbs.innerHTML = '';
+      els.panel.hidden = true;   // a panel (e.g. Reading rails) may still be open
       els.next.hidden = true;
       els.end.hidden = true;
       els.info.hidden = true;
@@ -1180,82 +1181,106 @@
       showPanelOverlay();
     }
 
-    // ---------- home reading shelves (Continue reading + Next up) ----------
-    // Rendered into the core library's #home-plugin-rail slot: horizontal cover
-    // shelves a reader lands on. Each is per-user dismissible via home-prefs.
+    // ---------- home reading shelves ----------
+    // Data-driven: each shelf is { key, pref, title, url, def, bar?, page?, dedupe? }.
+    // Rendered into the core library's #home-plugin-rail slot; each is per-user
+    // dismissible, and "Reading rails…" lists them all. `def` is the fallback
+    // when prefs can't be fetched; the server holds the real defaults.
+    const SHELVES = [
+      { key: 'continue',  pref: 'showContinue',  title: 'Continue reading',    url: '/api/reader/continue',          def: true, bar: true },
+      { key: 'next',      pref: 'showNext',       title: 'Next up',             url: '/api/reader/next-up',           def: true },
+      { key: 'new',       pref: 'showNew',        title: 'New in your library', url: '/api/reader/new-in-library',    def: true },
+      { key: 'later',     pref: 'showLater',      title: 'Read later',          url: '/api/reader/later',             def: false },
+      { key: 'finished',  pref: 'showFinished',   title: 'Recently finished',   url: '/api/reader/recently-finished', def: false },
+      { key: 'startnew',  pref: 'showStartNew',   title: 'Start a new series',  url: '/api/reader/start-new',         def: false },
+      { key: 'bookmarks', pref: 'showBookmarks',  title: 'Bookmarks',           url: '/api/reader/bookmarks',         def: false, page: (it) => it.page || 0, dedupe: true },
+    ];
+    let homePrefs = null;
+    const shelfOn = (s) => (homePrefs && s.pref in homePrefs) ? homePrefs[s.pref] !== false : s.def;
     async function renderHomeRails() {
-      const railSlot = api.slot('home-plugin-rail'); // looked up lazily — the
-      if (!railSlot) return;                          // library may mount after us
-      let prefs = { showContinue: true, showNext: true };
-      try { prefs = await api.get('/api/reader/home-prefs'); } catch { /* defaults */ }
-      const [cont, next] = await Promise.all([
-        prefs.showContinue ? api.get('/api/reader/continue').catch(() => ({ items: [] })) : { items: [] },
-        prefs.showNext ? api.get('/api/reader/next-up').catch(() => ({ items: [] })) : { items: [] },
-      ]);
-      railSlot.innerHTML = '';
-      if (prefs.showContinue && (cont.items || []).length) railSlot.appendChild(buildRail('continue', 'Continue reading', cont.items, true));
-      if (prefs.showNext && (next.items || []).length) railSlot.appendChild(buildRail('next', 'Next up', next.items, false));
+      const railSlot = api.slot('home-plugin-rail'); // lazy — the library may mount after us
+      if (!railSlot) return;
+      try { homePrefs = await api.get('/api/reader/home-prefs'); } catch { /* keep last/defaults */ }
+      const shown = SHELVES.filter(shelfOn);
+      const results = await Promise.all(shown.map((s) =>
+        api.get(s.url).then((r) => ({ s, items: (r && r.items) || [] })).catch(() => ({ s, items: [] }))));
+      const desired = [];
+      for (const { s, items } of results) {
+        const list = s.dedupe ? dedupeByIssue(items) : items;
+        if (list.length) desired.push(buildRail(s, list));
+      }
+      // Reconcile against the current DOM: reuse a shelf's existing node when its
+      // content is unchanged, so its cover images don't reload and flash. Only a
+      // shelf that actually changed is swapped; if nothing changed, don't touch
+      // the DOM at all (closing a book you didn't advance → no flash).
+      const existing = new Map([...railSlot.children].map((el) => [el.dataset.shelf, el]));
+      const finalNodes = desired.map((next) => {
+        const old = existing.get(next.dataset.shelf);
+        return old && old.innerHTML === next.innerHTML ? old : next;
+      });
+      const unchanged = finalNodes.length === railSlot.children.length
+        && finalNodes.every((n, i) => n === railSlot.children[i]);
+      if (!unchanged) railSlot.replaceChildren(...finalNodes);
     }
-    function buildRail(key, title, items, withProgress) {
+    function dedupeByIssue(items) {
+      const seen = new Set(); const out = [];
+      for (const it of items) if (!seen.has(it.issue_id)) { seen.add(it.issue_id); out.push(it); }
+      return out;
+    }
+    function buildRail(shelf, items) {
       const sec = document.createElement('section');
       sec.className = 'reader-rail';
+      sec.dataset.shelf = shelf.key; // for render reconciliation (avoids image flash)
       const head = document.createElement('div');
       head.className = 'reader-rail__head';
       const h = document.createElement('span');
-      h.className = 'reader-rail__title'; h.textContent = title;
+      h.className = 'reader-rail__title'; h.textContent = shelf.title;
       const hide = document.createElement('button');
       hide.className = 'reader-rail__hide';
       hide.title = 'Hide this shelf — turn it back on from “Reading rails…”';
-      hide.setAttribute('aria-label', 'Hide ' + title);
+      hide.setAttribute('aria-label', 'Hide ' + shelf.title);
       hide.innerHTML = hicon('close', { size: 16 }, '×');
-      hide.onclick = () => hideRail(key);
+      hide.onclick = () => hideShelf(shelf);
       head.append(h, hide);
       const track = document.createElement('div');
       track.className = 'reader-rail__track';
-      for (const it of items) track.appendChild(railCard(it, withProgress));
+      for (const it of items) track.appendChild(railCard(shelf, it));
       sec.append(head, track);
       return sec;
     }
-    function railCard(it, withProgress) {
-      const pct = withProgress && it.pages ? Math.round((it.page / it.pages) * 100) : 0;
+    function railCard(shelf, it) {
+      const pct = shelf.bar && it.pages ? Math.round((it.page / it.pages) * 100) : 0;
       const el = document.createElement('button');
       el.className = 'reader-rail__card';
       el.title = `${it.series || ''} #${it.issue_number ?? '?'}`;
       el.innerHTML = `
         <span class="reader-rail__cover"><img src="/api/reader/issue/${it.issue_id}/page/0?w=200" alt="" loading="lazy"></span>
         <span class="reader-rail__label"><b>${escapeHtml(it.series || '?')}</b> #${escapeHtml(String(it.issue_number ?? '?'))}</span>
-        ${withProgress
+        ${shelf.bar
           ? `<span class="reader-rail__bar"><span style="width:${pct}%"></span></span>`
-          : `<small class="reader-rail__sub">${escapeHtml(it.title || 'Next up')}</small>`}`;
-      el.onclick = () => openReader(it.issue_id);
+          : `<small class="reader-rail__sub">${escapeHtml(it.title || shelf.title)}</small>`}`;
+      const page = shelf.page ? shelf.page(it) : null;
+      el.onclick = () => openReader(it.issue_id, page);
       return el;
     }
-    async function hideRail(key) {
-      let prefs = { showContinue: true, showNext: true };
-      try { prefs = await api.get('/api/reader/home-prefs'); } catch { /* defaults */ }
-      if (key === 'continue') prefs.showContinue = false; else prefs.showNext = false;
-      try { await api.post('/api/reader/home-prefs', prefs); } catch { /* retry next render */ }
+    async function hideShelf(shelf) {
+      try { homePrefs = await api.post('/api/reader/home-prefs', { [shelf.pref]: false }); } catch { /* retry next render */ }
       renderHomeRails();
     }
-    // "Reading rails…" — a small panel to toggle either shelf back on/off.
+    // "Reading rails…" — toggle any shelf on or off.
     async function openRailsPanel() {
       if (!overlay) build();
       overlay.querySelector('.reader__paneltitle').textContent = 'Reading rails';
-      let prefs = { showContinue: true, showNext: true };
+      let prefs = {};
       try { prefs = await api.get('/api/reader/home-prefs'); } catch { /* defaults */ }
-      els.panellist.innerHTML = `
-        <div class="reader__rails-prefs">
-          <p class="reader__rails-note">Shelves shown at the top of your library.</p>
-          <label class="reader__rails-row"><input type="checkbox" data-pref="showContinue"${prefs.showContinue ? ' checked' : ''}> Continue reading</label>
-          <label class="reader__rails-row"><input type="checkbox" data-pref="showNext"${prefs.showNext ? ' checked' : ''}> Next up</label>
-        </div>`;
-      const readPrefs = () => ({
-        showContinue: els.panellist.querySelector('[data-pref="showContinue"]').checked,
-        showNext: els.panellist.querySelector('[data-pref="showNext"]').checked,
-      });
+      els.panellist.innerHTML =
+        '<div class="reader__rails-prefs"><p class="reader__rails-note">Shelves shown at the top of your library.</p>' +
+        SHELVES.map((s) =>
+          `<label class="reader__rails-row"><input type="checkbox" data-pref="${s.pref}"${prefs[s.pref] !== false ? ' checked' : ''}> ${escapeHtml(s.title)}</label>`).join('') +
+        '</div>';
       els.panellist.querySelectorAll('input[data-pref]').forEach((cb) => {
         cb.onchange = async () => {
-          try { await api.post('/api/reader/home-prefs', readPrefs()); } catch { /* keep UI state */ }
+          try { homePrefs = await api.post('/api/reader/home-prefs', { [cb.dataset.pref]: cb.checked }); } catch { /* keep UI state */ }
           renderHomeRails();
         };
       });

@@ -56,13 +56,25 @@ export function openReaderStore(dbPath) {
       added_at TEXT,
       PRIMARY KEY (user_id, issue_id)
     );
-    -- Per-user visibility of the home-page reading shelves (both default on).
+    -- Per-user visibility of each home-page reading shelf. The everyday shelves
+    -- default on; the rest are opt-in so the home doesn't crowd on first load.
     CREATE TABLE IF NOT EXISTS reader_home_prefs (
-      user_id       INTEGER PRIMARY KEY,
-      show_continue INTEGER NOT NULL DEFAULT 1,
-      show_next     INTEGER NOT NULL DEFAULT 1
+      user_id        INTEGER PRIMARY KEY,
+      show_continue  INTEGER NOT NULL DEFAULT 1,
+      show_next      INTEGER NOT NULL DEFAULT 1,
+      show_new       INTEGER NOT NULL DEFAULT 1,
+      show_later     INTEGER NOT NULL DEFAULT 0,
+      show_finished  INTEGER NOT NULL DEFAULT 0,
+      show_startnew  INTEGER NOT NULL DEFAULT 0,
+      show_bookmarks INTEGER NOT NULL DEFAULT 0
     );
   `);
+  // Backfill shelf columns on DBs created before the extra shelves existed.
+  for (const [col, def] of Object.entries({ show_new: 1, show_later: 0, show_finished: 0, show_startnew: 0, show_bookmarks: 0 })) {
+    if (!db.prepare("SELECT 1 FROM pragma_table_info('reader_home_prefs') WHERE name = ?").get(col)) {
+      db.exec(`ALTER TABLE reader_home_prefs ADD COLUMN ${col} INTEGER NOT NULL DEFAULT ${def}`);
+    }
+  }
 
   // ---- migration: global (single-user) tables → per-user ----
   // Old tables lack user_id; rebuild each with the owner's id. The owner is
@@ -223,16 +235,92 @@ export function openReaderStore(dbPath) {
       `).all(userId, userId, limit);
     },
 
-    /** Per-user visibility of the two home reading shelves. Both default on. */
-    homePrefs(userId) {
-      const r = db.prepare('SELECT show_continue, show_next FROM reader_home_prefs WHERE user_id = ?').get(userId);
-      return { showContinue: r ? !!r.show_continue : true, showNext: r ? !!r.show_next : true };
+    /** Recently-added issues the user hasn't touched yet — "new, ready to read".
+     *  Ordered by the file's mtime (when the copy landed on disk). */
+    newInLibrary(userId, limit = 12) {
+      return db.prepare(`
+        SELECT lf.cv_issue_id AS issue_id, ci.name AS title, ci.issue_number,
+               cs.name AS series, ci.cv_series_id AS series_id
+          FROM library_files lf
+          JOIN cv_issues ci ON ci.comicvine_id = lf.cv_issue_id
+          LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+         WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM reader_progress p
+                            WHERE p.user_id = ? AND p.issue_id = lf.cv_issue_id
+                              AND (p.completed = 1 OR p.page > 0))
+         GROUP BY lf.cv_issue_id
+         ORDER BY MAX(lf.mtime) DESC LIMIT ?
+      `).all(userId, limit);
     },
-    setHomePrefs(userId, { showContinue, showNext }) {
+
+    /** Issues the user finished, most recent first — for a re-read or a look back. */
+    recentlyFinished(userId, limit = 12) {
+      return db.prepare(`
+        SELECT p.issue_id, ci.name AS title, ci.issue_number, cs.name AS series, ci.cv_series_id AS series_id
+          FROM reader_progress p
+          JOIN cv_issues ci ON ci.comicvine_id = p.issue_id
+          LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+         WHERE p.user_id = ? AND p.completed = 1 AND EXISTS
+           (SELECT 1 FROM library_files lf WHERE lf.cv_issue_id = p.issue_id AND lf.valid = 1)
+         ORDER BY p.updated_at DESC LIMIT ?
+      `).all(userId, limit);
+    },
+
+    /** The first issue of each owned series the user has never opened — a nudge
+     *  toward the unread stuff sitting in their library. */
+    startNewSeries(userId, limit = 12) {
+      return db.prepare(`
+        WITH owned AS (
+          SELECT DISTINCT ci.cv_series_id AS sid
+            FROM library_files lf JOIN cv_issues ci ON ci.comicvine_id = lf.cv_issue_id
+           WHERE lf.valid = 1 AND ci.cv_series_id IS NOT NULL
+        ),
+        touched AS (
+          SELECT DISTINCT ci.cv_series_id AS sid
+            FROM reader_progress p JOIN cv_issues ci ON ci.comicvine_id = p.issue_id
+           WHERE p.user_id = ? AND ci.cv_series_id IS NOT NULL
+        ),
+        ranked AS (
+          SELECT ci.comicvine_id AS issue_id, ci.name AS title, ci.issue_number,
+                 cs.name AS series, ci.cv_series_id AS series_id,
+                 ROW_NUMBER() OVER (PARTITION BY ci.cv_series_id
+                   ORDER BY CAST(NULLIF(ci.issue_number,'') AS REAL), ci.issue_number) AS rn
+            FROM owned o
+            JOIN cv_issues ci ON ci.cv_series_id = o.sid
+            LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+           WHERE o.sid NOT IN (SELECT sid FROM touched)
+             AND EXISTS (SELECT 1 FROM library_files lf WHERE lf.cv_issue_id = ci.comicvine_id AND lf.valid = 1)
+        )
+        SELECT issue_id, title, issue_number, series, series_id FROM ranked WHERE rn = 1
+         ORDER BY series LIMIT ?
+      `).all(userId, limit);
+    },
+
+    /** Per-user visibility of each home reading shelf. Everyday shelves default
+     *  on, the rest opt-in. setHomePrefs takes a partial and merges. */
+    homePrefs(userId) {
+      const r = db.prepare('SELECT * FROM reader_home_prefs WHERE user_id = ?').get(userId);
+      const on = (col, def) => (r ? !!r[col] : def);
+      return {
+        showContinue: on('show_continue', true), showNext: on('show_next', true),
+        showNew: on('show_new', true), showLater: on('show_later', false),
+        showFinished: on('show_finished', false), showStartNew: on('show_startnew', false),
+        showBookmarks: on('show_bookmarks', false),
+      };
+    },
+    setHomePrefs(userId, partial) {
+      const m = { ...this.homePrefs(userId), ...(partial || {}) };
       db.prepare(`
-        INSERT INTO reader_home_prefs (user_id, show_continue, show_next) VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET show_continue = excluded.show_continue, show_next = excluded.show_next
-      `).run(userId, showContinue ? 1 : 0, showNext ? 1 : 0);
+        INSERT INTO reader_home_prefs
+          (user_id, show_continue, show_next, show_new, show_later, show_finished, show_startnew, show_bookmarks)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          show_continue = excluded.show_continue, show_next = excluded.show_next,
+          show_new = excluded.show_new, show_later = excluded.show_later,
+          show_finished = excluded.show_finished, show_startnew = excluded.show_startnew,
+          show_bookmarks = excluded.show_bookmarks
+      `).run(userId, m.showContinue ? 1 : 0, m.showNext ? 1 : 0, m.showNew ? 1 : 0,
+        m.showLater ? 1 : 0, m.showFinished ? 1 : 0, m.showStartNew ? 1 : 0, m.showBookmarks ? 1 : 0);
       return this.homePrefs(userId);
     },
 

@@ -188,6 +188,21 @@ export default function register(api) {
     res.json({ items: hideRestricted(req, store.nextUpList(uid(req), 12)) });
   }, { access: CAN_READ });
 
+  // GET /api/reader/new-in-library — recently added, still-unread issues.
+  api.registerRoute('get', '/api/reader/new-in-library', (req, res) => {
+    res.json({ items: hideRestricted(req, store.newInLibrary(uid(req), 12)) });
+  }, { access: CAN_READ });
+
+  // GET /api/reader/recently-finished — issues you just finished.
+  api.registerRoute('get', '/api/reader/recently-finished', (req, res) => {
+    res.json({ items: hideRestricted(req, store.recentlyFinished(uid(req), 12)) });
+  }, { access: CAN_READ });
+
+  // GET /api/reader/start-new — first issue of owned series you've never opened.
+  api.registerRoute('get', '/api/reader/start-new', (req, res) => {
+    res.json({ items: hideRestricted(req, store.startNewSeries(uid(req), 12)) });
+  }, { access: CAN_READ });
+
   // GET/POST /api/reader/home-prefs — per-user visibility of the home shelves.
   api.registerRoute('get', '/api/reader/home-prefs', (req, res) => {
     res.json(store.homePrefs(uid(req)));

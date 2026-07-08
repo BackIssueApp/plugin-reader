@@ -379,16 +379,69 @@ test('next-up: earliest unread issue in a series you have finished one of', () =
   } finally { rm(); }
 });
 
-test('home rail prefs: default on, toggle persists, per-user', () => {
+test('home rail prefs: per-shelf defaults, partial-merge toggle, per-user', () => {
   const { p: dir, rm } = tmpdir();
   try {
     const store = openReaderStore(path.join(dir, 'cat-homeprefs.db'));
-    assert.deepEqual(store.homePrefs(1), { showContinue: true, showNext: true }); // default
-    assert.deepEqual(store.setHomePrefs(1, { showContinue: false, showNext: true }), { showContinue: false, showNext: true });
-    assert.deepEqual(store.homePrefs(1), { showContinue: false, showNext: true });
-    assert.deepEqual(store.homePrefs(2), { showContinue: true, showNext: true }, 'per-user default');
-    store.setHomePrefs(1, { showContinue: true, showNext: false });
-    assert.deepEqual(store.homePrefs(1), { showContinue: true, showNext: false });
+    // Everyday shelves default on; the rest opt-in.
+    assert.deepEqual(store.homePrefs(1), {
+      showContinue: true, showNext: true, showNew: true,
+      showLater: false, showFinished: false, showStartNew: false, showBookmarks: false,
+    });
+    // A partial update merges — other shelves keep their values.
+    const after = store.setHomePrefs(1, { showLater: true, showContinue: false });
+    assert.equal(after.showLater, true);
+    assert.equal(after.showContinue, false);
+    assert.equal(after.showNext, true, 'untouched shelf preserved');
+    assert.equal(store.homePrefs(1).showLater, true, 'persisted');
+    // Per-user isolation.
+    assert.equal(store.homePrefs(2).showContinue, true, 'per-user default');
+    assert.equal(store.homePrefs(2).showLater, false);
+    store.close();
+  } finally { rm(); }
+});
+
+test('shelves: new-in-library, recently-finished, start-a-new-series', () => {
+  const { p: dir, rm } = tmpdir();
+  try {
+    const dbPath = path.join(dir, 'cat-shelves.db');
+    const seed = new Database(dbPath);
+    seed.exec(`
+      CREATE TABLE cv_series (comicvine_id INTEGER PRIMARY KEY, name TEXT);
+      CREATE TABLE cv_issues (comicvine_id INTEGER PRIMARY KEY, cv_series_id INTEGER, name TEXT, issue_number TEXT);
+      CREATE TABLE library_files (path TEXT PRIMARY KEY, cv_issue_id INTEGER, series_id INTEGER, valid INTEGER, mtime INTEGER);
+      INSERT INTO cv_series VALUES (900, 'Saga'), (901, 'Bone');
+      INSERT INTO cv_issues VALUES
+        (10, 900, 'One', '1'), (11, 900, 'Two', '2'),
+        (20, 901, 'B1', '1'), (21, 901, 'B2', '2');
+      -- mtime: Bone #1 is the newest file on disk
+      INSERT INTO library_files VALUES
+        ('/s1.cbz', 10, 1, 1, 1000), ('/s2.cbz', 11, 1, 1, 1100),
+        ('/b1.cbz', 20, 2, 1, 5000), ('/b2.cbz', 21, 2, 1, 1200);
+    `);
+    seed.close();
+    const store = openReaderStore(dbPath);
+    const U = 1;
+
+    // NEW IN LIBRARY: nothing read → all unread, newest file (Bone #1) first.
+    let nw = store.newInLibrary(U);
+    assert.equal(nw.length, 4);
+    assert.equal(nw[0].issue_id, 20, 'newest mtime first');
+
+    // START A NEW SERIES: nothing opened → first issue of each series.
+    let sn = store.startNewSeries(U).map((x) => x.issue_id).sort((a, b) => a - b);
+    assert.deepEqual(sn, [10, 20]); // Saga #1 + Bone #1
+
+    // Read Saga #1 → it leaves "new"; Saga leaves "start a new series"; and it's
+    // now the only recently-finished issue.
+    store.saveProgress(U, 10, { page: 20, pages: 20, completed: true });
+    assert.ok(!store.newInLibrary(U).some((x) => x.issue_id === 10), 'read issue leaves New');
+    assert.deepEqual(store.startNewSeries(U).map((x) => x.issue_id), [20], 'only untouched series remain');
+    assert.deepEqual(store.recentlyFinished(U).map((x) => x.issue_id), [10]);
+
+    // Per-user isolation.
+    assert.equal(store.recentlyFinished(2).length, 0);
+    assert.equal(store.startNewSeries(2).length, 2, 'user 2 has opened nothing');
     store.close();
   } finally { rm(); }
 });
