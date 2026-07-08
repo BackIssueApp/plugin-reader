@@ -56,6 +56,8 @@
     colorFilter: 'none',   // none | invert | grayscale | sepia — eye-comfort / e-ink
     incognito: false,      // when on, reading is NOT recorded (no progress/history)
     autoScrollSpeed: 60,   // webtoon auto-scroll, pixels/second
+    keepAwake: false,      // hold a screen wake lock while reading (secure contexts)
+    readThreshold: 100,    // % of pages read that counts an issue as finished
   };
   let settings = { ...defaults };
   try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { /* defaults */ }
@@ -175,7 +177,28 @@
       showChrome();
       flushProgressQueue();
       maybeShowHints();
+      acquireWake();
     }
+
+    // ---- Screen wake lock ----
+    // Keep the device screen on while reading, if enabled and the browser
+    // supports it (secure contexts only). The lock auto-releases when the tab is
+    // hidden, so it's re-acquired on visibilitychange.
+    let wakeSentinel = null;
+    async function acquireWake() {
+      if (!settings.keepAwake || wakeSentinel || !('wakeLock' in navigator)) return;
+      try {
+        wakeSentinel = await navigator.wakeLock.request('screen');
+        wakeSentinel.addEventListener?.('release', () => { wakeSentinel = null; });
+      } catch { wakeSentinel = null; /* denied / not visible */ }
+    }
+    function releaseWake() {
+      try { if (wakeSentinel) wakeSentinel.release(); } catch { /* already gone */ }
+      wakeSentinel = null;
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && overlay && overlay.classList.contains('is-open') && !overlay.classList.contains('is-panelonly')) acquireWake();
+    });
 
     // ---- Browser-history integration ----
     // The reader is an overlay, not a route: without this, Back navigates the
@@ -214,6 +237,7 @@
       overlay.classList.remove('is-open');
       overlay.classList.remove('is-panelonly');
       document.body.classList.remove('reader-open');
+      releaseWake();
       if (webtoonObserver) { webtoonObserver.disconnect(); webtoonObserver = null; }
       els.stage.innerHTML = ''; els.webtoon.innerHTML = ''; els.thumbs.innerHTML = '';
       manifest = null;
@@ -601,7 +625,10 @@
       for (let n = 0; n < manifest.pages; n++) {
         const img = new Image();
         img.className = 'reader__wpage';
-        img.loading = 'lazy';
+        // Native lazy-loading is unreliable for images in an inner scroll
+        // container and for the initially-visible ones (they'd stay blank until
+        // a scroll). Eager-load the pages around where we open; lazy the rest.
+        img.loading = Math.abs(n - page) <= 3 ? 'eager' : 'lazy';
         img.dataset.page = n;
         img.src = pageUrl(n);
         img.draggable = false;
@@ -896,7 +923,10 @@
       if (!manifest) return;
       if (settings.incognito) return; // private reading — record nothing
       clearTimeout(progressTimer);
-      const done = page >= manifest.pages - 1;
+      // An issue counts as finished once you've read the configured % of it
+      // (default 100 = the last page). page is 0-based, so page+1 = pages read.
+      const threshold = Math.min(100, Math.max(1, settings.readThreshold || 100)) / 100;
+      const done = manifest.pages > 0 && (page + 1) / manifest.pages >= threshold;
       readStates[manifest.issue.id] = { page, pages: manifest.pages, completed: done || readStates[manifest.issue.id]?.completed ? 1 : 0 };
       const body = { page, pages: manifest.pages, completed: done };
       const url = `/api/reader/issue/${manifest.issue.id}/progress`;
@@ -1201,6 +1231,7 @@
       const railSlot = api.slot('home-plugin-rail'); // lazy — the library may mount after us
       if (!railSlot) return;
       try { homePrefs = await api.get('/api/reader/home-prefs'); } catch { /* keep last/defaults */ }
+      syncProfileOptions(); // keep the Profile-page toggles in step with the shelves
       const shown = SHELVES.filter(shelfOn);
       const results = await Promise.all(shown.map((s) =>
         api.get(s.url).then((r) => ({ s, items: (r && r.items) || [] })).catch(() => ({ s, items: [] }))));
@@ -1267,24 +1298,99 @@
       try { homePrefs = await api.post('/api/reader/home-prefs', { [shelf.pref]: false }); } catch { /* retry next render */ }
       renderHomeRails();
     }
-    // "Reading rails…" — toggle any shelf on or off.
-    async function openRailsPanel() {
-      if (!overlay) build();
-      overlay.querySelector('.reader__paneltitle').textContent = 'Reading rails';
-      let prefs = {};
-      try { prefs = await api.get('/api/reader/home-prefs'); } catch { /* defaults */ }
-      els.panellist.innerHTML =
-        '<div class="reader__rails-prefs"><p class="reader__rails-note">Shelves shown at the top of your library.</p>' +
-        SHELVES.map((s) =>
-          `<label class="reader__rails-row"><input type="checkbox" data-pref="${s.pref}"${prefs[s.pref] !== false ? ' checked' : ''}> ${escapeHtml(s.title)}</label>`).join('') +
-        '</div>';
-      els.panellist.querySelectorAll('input[data-pref]').forEach((cb) => {
-        cb.onchange = async () => {
-          try { homePrefs = await api.post('/api/reader/home-prefs', { [cb.dataset.pref]: cb.checked }); } catch { /* keep UI state */ }
-          renderHomeRails();
+    // Reading-shelf toggles live in the core Profile page (#profile-plugin-slot).
+    // Built once, then kept in sync with home-prefs on every render — so hiding a
+    // shelf with its × updates these checkboxes too.
+    function syncProfileOptions() {
+      const slot = api.slot('profile-plugin-slot');
+      if (!slot) return;
+      let card = slot.querySelector('#reader-rails-prefs');
+      if (!card) {
+        card = document.createElement('section');
+        card.className = 'settings-section';
+        card.id = 'reader-rails-prefs';
+        card.innerHTML = '<p class="modal__subhead">Reading shelves</p>' +
+          '<p class="modal__note">Which shelves appear at the top of your library.</p>' +
+          '<div class="reader__rails-prefs">' +
+          SHELVES.map((s) => `<label class="reader__rails-row"><input type="checkbox" data-pref="${s.pref}"> ${escapeHtml(s.title)}</label>`).join('') +
+          '</div>';
+        slot.appendChild(card);
+        card.querySelectorAll('input[data-pref]').forEach((cb) => {
+          cb.onchange = async () => {
+            try { homePrefs = await api.post('/api/reader/home-prefs', { [cb.dataset.pref]: cb.checked }); } catch { /* keep UI */ }
+            renderHomeRails();
+          };
+        });
+      }
+      for (const cb of card.querySelectorAll('input[data-pref]')) {
+        cb.checked = homePrefs ? homePrefs[cb.dataset.pref] !== false : true;
+      }
+      buildDefaultsCard(slot);
+    }
+    // Device reading defaults (layout, RTL, incognito) — applied when a comic
+    // has no saved per-series layout. Built once into the Profile slot; writes
+    // to the same localStorage settings the reader itself uses.
+    function buildDefaultsCard(slot) {
+      if (slot.querySelector('#reader-defaults-prefs')) return;
+      const card = document.createElement('section');
+      card.className = 'settings-section';
+      card.id = 'reader-defaults-prefs';
+      card.innerHTML =
+        '<p class="modal__subhead">Reading defaults</p>' +
+        '<p class="modal__note">Used when you open a comic that has no saved layout of its own.</p>' +
+        '<label class="field"><span>Default layout</span><select id="reader-def-mode">' +
+          '<option value="single">Single page</option>' +
+          '<option value="double">Double page</option>' +
+          '<option value="webtoon">Webtoon (long strip)</option>' +
+        '</select></label>' +
+        '<label class="field"><span>Page fit</span><select id="reader-def-fit">' +
+          '<option value="height">Fit height</option>' +
+          '<option value="width">Fit width</option>' +
+          '<option value="orig">Original size</option>' +
+        '</select></label>' +
+        '<label class="field"><span>Eye comfort</span><select id="reader-def-filter">' +
+          '<option value="none">None</option>' +
+          '<option value="invert">Invert (dark)</option>' +
+          '<option value="grayscale">Grayscale</option>' +
+          '<option value="sepia">Sepia</option>' +
+        '</select></label>' +
+        '<label class="field"><span>Count as read at</span><select id="reader-def-threshold">' +
+          '<option value="100">Last page</option>' +
+          '<option value="95">95%</option>' +
+          '<option value="90">90%</option>' +
+          '<option value="85">85%</option>' +
+          '<option value="80">80%</option>' +
+        '</select></label>' +
+        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-rtl"> Right-to-left (manga)</label>' +
+        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-datasaver"> Data saver (load lighter pages)</label>' +
+        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-trim"> Trim page margins</label>' +
+        (('wakeLock' in navigator) ? '<label class="reader__rails-row"><input type="checkbox" id="reader-def-awake"> Keep the screen awake while reading</label>' : '') +
+        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-incognito"> Always read incognito (don’t record progress, history, or stats)</label>';
+      slot.appendChild(card);
+      const $ = (sel) => card.querySelector(sel);
+      const mode = $('#reader-def-mode'), fit = $('#reader-def-fit'), filter = $('#reader-def-filter');
+      const rtl = $('#reader-def-rtl'), datasaver = $('#reader-def-datasaver'), trim = $('#reader-def-trim'), incog = $('#reader-def-incognito');
+      mode.value = settings.mode; fit.value = settings.fit; filter.value = settings.colorFilter;
+      rtl.checked = !!settings.rtl; datasaver.checked = !!settings.dataSaver;
+      trim.checked = !!settings.trim; incog.checked = !!settings.incognito;
+      mode.onchange = () => { settings.mode = mode.value; saveSettings(); };
+      fit.onchange = () => { settings.fit = fit.value; saveSettings(); };
+      filter.onchange = () => { settings.colorFilter = filter.value; saveSettings(); };
+      rtl.onchange = () => { settings.rtl = rtl.checked; saveSettings(); };
+      datasaver.onchange = () => { settings.dataSaver = datasaver.checked; saveSettings(); };
+      trim.onchange = () => { settings.trim = trim.checked; saveSettings(); };
+      incog.onchange = () => setIncognito(incog.checked); // keeps the header toggle in step
+      const threshold = $('#reader-def-threshold');
+      threshold.value = String(settings.readThreshold || 100);
+      threshold.onchange = () => { settings.readThreshold = Number(threshold.value) || 100; saveSettings(); };
+      const awake = $('#reader-def-awake');
+      if (awake) {
+        awake.checked = !!settings.keepAwake;
+        awake.onchange = () => {
+          settings.keepAwake = awake.checked; saveSettings();
+          if (awake.checked && overlay && overlay.classList.contains('is-open')) acquireWake(); else releaseWake();
         };
-      });
-      showPanelOverlay();
+      }
     }
 
     // ---------- registration with the app ----------
@@ -1380,7 +1486,6 @@
     api.addMenuAction('Read later', openLaterPanel, hicon('clock', null, '📌'), { section: 'Reading' });
     api.addMenuAction('My bookmarks', openBookmarksPanel, hicon('bookmark', null, '☆'), { section: 'Reading' });
     api.addMenuAction('Reading stats', openStatsPanel, hicon('bar-chart', null, '◔'), { section: 'Reading' });
-    api.addMenuAction('Reading rails…', openRailsPanel, hicon('layout', null, '▤'), { section: 'Reading' });
 
     // ---------- header incognito toggle ----------
     // One tap in the app header (next to notifications/help) flips private
@@ -1398,6 +1503,9 @@
       else if (api.toast) api.toast(msg, settings.incognito ? 'info' : 'ok');
     }
     function syncIncognitoUI() {
+      // Keep the Profile-page toggle in step with the header button (either can flip it).
+      const pc = document.getElementById('reader-def-incognito');
+      if (pc) pc.checked = !!settings.incognito;
       if (!incogBtn) return;
       incogBtn.classList.toggle('is-on', !!settings.incognito);
       incogBtn.title = settings.incognito
