@@ -1,0 +1,303 @@
+/* BackIssue reader overlay. Chrome fades away; pages get everything. */
+.reader { position: fixed; inset: 0; z-index: 1400; display: none; user-select: none; overscroll-behavior: none; }
+.reader.is-open { display: flex; flex-direction: column; }
+/* While reading, the page behind must never scroll — and a downward drag must
+   not chain out of the overlay into the browser's pull-to-refresh. */
+body.reader-open { overflow: hidden; overscroll-behavior-y: none; }
+html:has(.reader.is-open) { overscroll-behavior-y: none; }
+.reader[data-bg="black"] { background: #000; }
+.reader[data-bg="gray"]  { background: #2e2e33; }
+.reader[data-bg="white"] { background: #f4f4f4; }
+
+/* ---- chrome (top/bottom bars) ---- */
+.reader__top, .reader__bottom {
+  position: absolute; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  background: rgba(10, 10, 14, 0.82); backdrop-filter: blur(6px);
+  color: #eee; transition: opacity 0.25s, transform 0.25s;
+}
+.reader__top { top: 0; padding-top: max(8px, env(safe-area-inset-top)); }
+.reader__bottom { bottom: 0; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+.reader.chrome-hidden .reader__top    { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+.reader.chrome-hidden .reader__bottom { opacity: 0; transform: translateY(100%); pointer-events: none; }
+.reader.chrome-hidden .reader__thumbs { opacity: 0; pointer-events: none; }
+
+.reader__btn {
+  border: none; background: rgba(255, 255, 255, 0.08); color: #eee;
+  min-width: 38px; height: 38px; border-radius: 8px; cursor: pointer;
+  font-size: 15px; padding: 0 9px; flex-shrink: 0;
+}
+.reader__btn:hover { background: rgba(255, 255, 255, 0.18); }
+/* Inline SVG icons — render identically on every device (symbol/emoji glyphs
+   did not, especially on iOS/iPadOS). */
+.reader__btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.reader__ico { width: 20px; height: 20px; flex: none; vertical-align: middle; }
+.reader__ico-txt { font-size: 13px; font-weight: 700; letter-spacing: .03em; }
+.reader__btn.r-bookmark.is-on { color: #ffc24b; }
+.reader__btn.r-offline.is-on { color: #4bd47a; }
+.reader__btn.is-loading { animation: reader-pulse 1s ease-in-out infinite; }
+@keyframes reader-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .reader__btn.is-loading { animation: none; opacity: .7; } }
+.reader__nextbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.reader__extlink { display: inline-flex; align-items: center; gap: 6px; }
+.reader__title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader__count { color: #9a9aa5; font-size: 13px; flex-shrink: 0; }
+.reader__spacer { flex: 1; }
+
+/* ---- settings popover ---- */
+.reader__settings {
+  position: absolute; top: 58px; right: 12px; z-index: 6;
+  background: rgba(16, 16, 22, 0.95); border: 1px solid #333; border-radius: 10px;
+  padding: 12px 14px; color: #ddd; display: flex; flex-direction: column; gap: 10px; font-size: 13px;
+  max-height: calc(100dvh - 130px); overflow-y: auto; overscroll-behavior: contain;
+}
+/* Secondary tools relocated from the top bar on small screens (empty on desktop). */
+.reader__quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.reader__quick:empty { display: none; }
+.reader__settings label { display: flex; align-items: center; gap: 8px; }
+.reader__bgs { display: flex; gap: 8px; }
+.reader__bgbtn { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #555; cursor: pointer; }
+.reader__bgbtn[data-bg="black"] { background: #000; }
+.reader__bgbtn[data-bg="gray"]  { background: #2e2e33; }
+.reader__bgbtn[data-bg="white"] { background: #f4f4f4; }
+.reader__bgbtn.is-on { border-color: #7aa2ff; }
+.reader__filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.reader__filterbtn {
+  padding: 4px 10px; border: 1px solid #555; border-radius: 6px;
+  background: #17171f; color: #ccc; cursor: pointer; font: 12px inherit;
+}
+.reader__filterbtn.is-on { border-color: #7aa2ff; color: #fff; }
+.reader__btn.r-later.is-on { color: #ffc24b; }
+/* Incognito indicator — a small badge so you never forget it's on. */
+.reader.is-incognito .reader__count::after {
+  content: '🕶 incognito'; margin-left: 10px; font-size: 11px; color: #ffc24b;
+  border: 1px solid rgba(255,194,75,.4); border-radius: 4px; padding: 1px 6px;
+}
+
+/* ---- body / paged stage ---- */
+.reader__body { flex: 1; position: relative; overflow: hidden; display: flex; }
+.reader__zone { position: absolute; top: 0; bottom: 0; width: 12%; z-index: 2; cursor: pointer; }
+.reader__zone--left { left: 0; }
+.reader__zone--right { right: 0; }
+
+.reader__stagewrap {
+  position: absolute; inset: 0; overflow: auto; touch-action: none; overscroll-behavior: contain;
+  display: flex; align-items: safe center; justify-content: safe center;
+}
+.reader__stagewrap.is-zoomed { cursor: grab; }
+.reader__stage {
+  display: flex; align-items: center; justify-content: center; gap: 0;
+  transform-origin: center center; transition: transform 0.08s linear;
+  filter: var(--reader-filter, brightness(var(--reader-brightness, 1)));
+}
+.reader__page { display: block; }
+.reader__stage[data-fit="height"] .reader__page { max-height: 100dvh; height: 100dvh; width: auto; object-fit: contain; }
+.reader__stage[data-fit="width"]  .reader__page { width: calc(100vw / var(--spread, 1)); height: auto; }
+.reader__stage[data-fit="orig"]   .reader__page { max-width: none; max-height: none; }
+/* double spread: each page caps at half the viewport width */
+.reader__stage[data-fit="height"] .reader__page + .reader__page,
+.reader__stage .reader__page + .reader__page { margin-left: 0; }
+.reader__stage:has(.reader__page + .reader__page)[data-fit="height"] .reader__page { max-width: 50vw; object-fit: contain; }
+.reader__stage:has(.reader__page + .reader__page)[data-fit="width"] .reader__page { width: 50vw; }
+
+/* ---- webtoon ---- */
+.reader__webtoon {
+  position: absolute; inset: 0; overflow-y: auto; z-index: 1; overscroll-behavior-y: contain;
+  display: flex; flex-direction: column; align-items: center;
+  filter: var(--reader-filter, brightness(var(--reader-brightness, 1)));
+}
+.reader__wpage { width: min(100%, 860px); display: block; }
+
+/* ---- slider / thumbs ---- */
+.reader__slider { flex: 1; accent-color: #7aa2ff; height: 26px; }
+.reader__pageno { font-size: 12.5px; color: #9a9aa5; min-width: 54px; text-align: right; }
+.reader__thumbs {
+  position: absolute; bottom: 58px; left: 0; right: 0; z-index: 4;
+  display: flex; gap: 6px; overflow-x: auto; overscroll-behavior: contain; padding: 8px 12px;
+  background: rgba(10, 10, 14, 0.75); transition: opacity 0.25s;
+}
+.reader__thumb { height: 92px; border-radius: 4px; cursor: pointer; opacity: 0.65; flex-shrink: 0; }
+.reader__thumb:hover { opacity: 1; }
+.reader__thumb.is-current { opacity: 1; outline: 2px solid #7aa2ff; }
+
+/* ---- next-issue + toast ---- */
+.reader__next { position: absolute; bottom: 84px; right: 20px; z-index: 6; }
+.reader__nextbtn {
+  border: none; border-radius: 10px; padding: 12px 18px; font-size: 15px; font-weight: 600;
+  background: #7aa2ff; color: #0b0b10; cursor: pointer; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.reader__toast {
+  position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); z-index: 7;
+  background: rgba(16, 16, 22, 0.95); color: #eee; border: 1px solid #333;
+  padding: 10px 16px; border-radius: 10px; font-size: 13.5px; max-width: 80vw;
+}
+
+/* ---- wide-page splitting ---- */
+.reader__halfwrap { overflow: hidden; display: flex; justify-content: center; max-height: 100dvh; }
+.reader__page--split { height: 100dvh; width: auto; max-width: none; object-fit: cover; object-position: left center; }
+.reader__page--split.is-right { object-position: right center; }
+.reader__halfwrap .reader__page--split { width: 50vw; min-width: 50vw; }
+@media (max-width: 640px) { .reader__halfwrap .reader__page--split { width: 100vw; min-width: 100vw; } }
+
+/* ---- slider bookmark marks ---- */
+.reader__sliderwrap { position: relative; flex: 1; display: flex; align-items: center; }
+.reader__sliderwrap .reader__slider { width: 100%; }
+.reader__marks { position: absolute; left: 8px; right: 8px; top: 2px; height: 4px; pointer-events: none; }
+.reader__mark { position: absolute; width: 4px; height: 8px; margin-left: -2px; border-radius: 2px; background: #ffd166; }
+
+/* ---- settings extras (split toggle + bookmark list) ---- */
+.reader__check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.reader__bmhead { font-weight: 600; margin-top: 2px; }
+.reader__bmlist { display: flex; gap: 8px; flex-wrap: wrap; max-width: 260px; max-height: 180px; overflow-y: auto; overscroll-behavior: contain; }
+.reader__bmitem { border: 1px solid #444; background: #1b1b22; border-radius: 8px; padding: 4px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; color: #ccc; font-size: 11px; }
+.reader__bmitem img { height: 64px; border-radius: 4px; }
+
+/* ---- page error ---- */
+.reader__pageerr { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-width: 40vw; min-height: 50vh; color: #bbb; font-size: 14px; }
+
+/* ---- continue-reading panel ---- */
+.reader__panel {
+  position: absolute; inset: 0; margin: auto; z-index: 8;
+  width: min(560px, 94vw); height: min(70vh, 640px);
+  background: rgba(14, 14, 20, 0.98); border: 1px solid #333; border-radius: 14px;
+  display: flex; flex-direction: column; overflow: hidden; color: #ddd;
+}
+/* Panel-only mode: the shelf panels (continue/later/bookmarks/stats) opened
+   from the app menu — a dim modal backdrop, never the black reader shell. */
+.reader.is-panelonly { background: rgba(8, 7, 12, 0.6) !important; backdrop-filter: blur(2px); }
+.reader.is-panelonly .reader__top, .reader.is-panelonly .reader__bottom,
+.reader.is-panelonly .reader__body, .reader.is-panelonly .reader__next,
+.reader.is-panelonly .reader__thumbs { display: none; }
+.reader__panel[hidden] { display: none; }
+.reader__panelhead { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; font-weight: 700; border-bottom: 1px solid #2a2a33; }
+.reader__panellist { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.reader__panelempty { color: #888; text-align: center; padding: 40px 12px; }
+.reader__contitem {
+  display: flex; gap: 12px; align-items: center; text-align: left;
+  background: #17171f; border: 1px solid #2a2a33; border-radius: 10px; padding: 8px; cursor: pointer; color: #ddd;
+}
+.reader__contitem:hover { background: #1e1e28; }
+.reader__contitem img { height: 84px; width: 56px; object-fit: cover; border-radius: 6px; background: #000; }
+.reader__continfo { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.reader__continfo b { font-size: 14px; }
+.reader__continfo small { color: #8b8b96; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader__contbar { height: 5px; border-radius: 3px; background: #2a2a33; overflow: hidden; }
+.reader__contbar span { display: block; height: 100%; background: #7aa2ff; }
+
+/* ---- reading-stats panel ---- */
+.reader__stats { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+.reader__statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.reader__stat {
+  background: #17171f; border: 1px solid #2a2a33; border-radius: 10px;
+  padding: 12px; display: flex; flex-direction: column; gap: 2px; align-items: center;
+}
+.reader__stat b { font-size: 22px; }
+.reader__stat small { color: #8b8b96; font-size: 11px; }
+.reader__stath { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8b8b96; margin-top: 4px; }
+.reader__statbars { display: flex; gap: 2px; align-items: flex-end; height: 56px; }
+.reader__statbar { flex: 1; height: 100%; display: flex; align-items: flex-end; background: #17171f; border-radius: 2px; }
+.reader__statbar span { display: block; width: 100%; min-height: 2px; background: #7aa2ff; border-radius: 2px; }
+.reader__stattop { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; background: #17171f; border: 1px solid #2a2a33; border-radius: 8px; }
+.reader__stattop b { color: #7aa2ff; }
+
+/* ---- end-of-issue card ---- */
+.reader__end {
+  position: absolute; inset: 0; margin: auto; z-index: 8;
+  width: min(440px, 92vw); height: fit-content;
+  background: rgba(14, 14, 20, 0.98); border: 1px solid #333; border-radius: 14px;
+  padding: 16px; display: flex; gap: 16px; align-items: center; color: #ddd;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+.reader__end[hidden] { display: none; }
+.reader__end img { height: 150px; width: 100px; object-fit: cover; border-radius: 8px; background: #000; flex-shrink: 0; }
+.reader__endinfo { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.reader__endinfo small { color: #8b8b96; font-size: 12px; }
+.reader__endinfo b { font-size: 16px; }
+.reader__endbtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+/* ---- issue info overlay ---- */
+.reader__infocard {
+  position: absolute; inset: 0; z-index: 9; background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.reader__infocard[hidden] { display: none; }
+.reader__infobox {
+  width: min(520px, 92vw); max-height: 80vh; overflow: hidden;
+  background: rgba(14, 14, 20, 0.98); border: 1px solid #333; border-radius: 14px;
+  color: #ddd; display: flex; flex-direction: column;
+}
+.reader__infobody { padding: 14px 16px; overflow-y: auto; overscroll-behavior: contain; font-size: 13.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 10px; }
+.reader__infobody h3 { margin: 0; font-size: 16px; }
+.reader__infobody a { color: #7aa2ff; }
+.reader__infodates { color: #8b8b96; font-size: 12px; }
+.reader__credits { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; }
+.reader__credit { display: flex; flex-direction: column; font-size: 12.5px; }
+.reader__credit span { color: #8b8b96; font-size: 11px; text-transform: capitalize; }
+
+/* ---- gesture hints ---- */
+.reader__hints {
+  position: absolute; inset: 0; z-index: 10; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.reader__hints[hidden] { display: none; }
+.reader__hintbox {
+  width: min(480px, 92vw); background: rgba(14, 14, 20, 0.98);
+  border: 1px solid #333; border-radius: 14px; padding: 18px;
+  color: #ddd; display: flex; flex-direction: column; gap: 14px; align-items: center;
+}
+.reader__hintzones { display: flex; width: 100%; text-align: center; font-size: 20px; }
+.reader__hintzones > div { flex: 1; border: 1px dashed #444; border-radius: 8px; padding: 14px 6px; margin: 0 3px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.reader__hintzones .reader__ico { width: 26px; height: 26px; }
+.reader__hintzones small { color: #8b8b96; font-size: 11px; }
+.reader__hintkeys { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: #bbb; }
+.reader__hintkeys b { color: #eee; }
+
+/* ---- mobile ---- */
+@media (max-width: 640px) {
+  .reader__title { font-size: 12.5px; }
+  .reader__count { display: none; }
+  .reader__btn { min-width: 38px; height: 38px; font-size: 14px; padding: 0 6px; }
+  .reader__thumb { height: 66px; }
+  .reader__zone { width: 18%; }
+  /* Popover becomes a full-width sheet under the bar; the quick row inside
+     holds the tools relocated from the top bar. */
+  .reader__settings {
+    left: 8px; right: 8px; top: max(54px, calc(env(safe-area-inset-top) + 46px));
+    max-height: calc(100dvh - 140px);
+  }
+  .reader__quick .reader__btn { flex: 1 1 auto; }
+  .reader__bmlist { max-width: none; }
+  .reader__pageno { min-width: 44px; font-size: 11.5px; }
+}
+
+/* Header incognito toggle (lives in the app's header plugin slot). */
+.reader-incog { display: inline-grid; place-items: center; }
+.reader-incog.is-on { color: #ffc24b; border-color: rgba(255, 194, 75, 0.55); background: rgba(255, 194, 75, 0.1); }
+
+/* ---------- Home reading shelves (Continue reading / Next up) ----------
+   These render into the core library's #home-plugin-rail slot, so they use the
+   core app's design tokens (not the reader overlay's palette). */
+#home-plugin-rail:not(:empty) { display: flex; flex-direction: column; gap: 16px; padding: 14px 18px 6px; }
+.reader-rail { display: flex; flex-direction: column; gap: 8px; }
+.reader-rail__head { display: flex; align-items: center; gap: 8px; }
+.reader-rail__title { font-family: var(--font-display, inherit); font-size: 15px; letter-spacing: 0.03em; color: var(--text); }
+.reader-rail__hide { margin-left: auto; background: none; border: none; color: var(--faint); cursor: pointer; padding: 3px; border-radius: 6px; display: inline-flex; line-height: 1; }
+.reader-rail__hide:hover { color: var(--text); background: var(--panel); }
+.reader-rail__track { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scroll-snap-type: x proximity; }
+.reader-rail__card { flex: 0 0 auto; width: 104px; display: flex; flex-direction: column; gap: 5px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: var(--text); scroll-snap-align: start; font: inherit; }
+.reader-rail__cover { display: block; width: 104px; height: 156px; border-radius: 8px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--line); }
+.reader-rail__cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reader-rail__card:hover .reader-rail__cover { border-color: var(--accent); }
+.reader-rail__card:focus-visible { outline: none; }
+.reader-rail__card:focus-visible .reader-rail__cover { outline: 2px solid var(--accent); outline-offset: 2px; }
+.reader-rail__label { font-size: 12px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.reader-rail__label b { font-weight: 600; }
+.reader-rail__sub { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-rail__bar { display: block; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.reader-rail__bar > span { display: block; height: 100%; background: var(--accent); }
+
+/* "Reading rails…" toggle panel (inside the reader overlay). */
+.reader__rails-prefs { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px; }
+.reader__rails-note { margin: 0; font-size: 12px; opacity: 0.6; }
+.reader__rails-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
