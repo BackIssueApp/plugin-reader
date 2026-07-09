@@ -1478,9 +1478,26 @@
     });
 
     // Real covers for owned issues on the volume grid: the file's own first
-    // page beats ComicVine art (and exists even when CV art doesn't).
+    // page beats ComicVine art (and exists even when CV art doesn't) — unless
+    // the user prefers ComicVine art (Settings → Library), or lacks the reader
+    // permission (the prefs fetch 403s → ComicVine art, whose URLs they CAN load).
+    let fileCovers = true; // optimistic default matches the setting's default
     api.registerIssueCover?.((i) =>
-      (i.owned && !i.corrupt && i.cv_issue_id) ? `/api/reader/issue/${i.cv_issue_id}/page/0?w=400` : null);
+      (fileCovers && i.owned && !i.corrupt && i.cv_issue_id) ? `/api/reader/issue/${i.cv_issue_id}/page/0?w=400` : null);
+    fetch('/api/reader/prefs').then((r) => (r.ok ? r.json() : { fileCovers: false }))
+      .then((p) => { if (p.fileCovers === false) { fileCovers = false; api.refreshIssueActions?.(); } })
+      .catch(() => {});
+
+    // Settings → Library: the cover preference checkbox (auto-wired via the
+    // set-<key> convention; core loads and saves it with the rest).
+    const libSlot = api.slot('settings-plugin-library');
+    if (libSlot && !libSlot.querySelector('#set-readerFileCovers')) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML =
+        '<label class="field field--check"><input id="set-readerFileCovers" type="checkbox"><span>Use the file\'s first page as an owned issue\'s cover (off = always ComicVine art)</span></label>' +
+        '<p class="modal__note">Applies to the issue grid on a series page. Your file\'s page may differ from ComicVine\'s art when it\'s a variant cover or a different printing.</p>';
+      libSlot.appendChild(wrap);
+    }
 
     api.addMenuAction('Continue reading', openContinuePanel, hicon('play', null, '▶'), { section: 'Reading' });
     api.addMenuAction('Read later', openLaterPanel, hicon('clock', null, '📌'), { section: 'Reading' });

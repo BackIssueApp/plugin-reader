@@ -28,6 +28,12 @@ export default function register(api) {
     tier: 'viewer',
   });
 
+  // Issue covers on the volume grid: prefer the file's own first page (default)
+  // or ComicVine art. Registered so the value validates + persists; the default
+  // is ON, set before core merges saved settings, so a saved 'false' wins.
+  api.registerSettings?.({ readerFileCovers: { type: 'bool' } });
+  if (config.readerFileCovers === undefined) config.readerFileCovers = true;
+
   const store = openReaderStore(config.dbPath);
   // Read history is PER USER: core's auth middleware stamps req.user; the
   // open-mode (no accounts) install reads as user 0.
@@ -181,6 +187,13 @@ export default function register(api) {
   // GET /api/reader/continue — recent unfinished reads.
   api.registerRoute('get', '/api/reader/continue', (req, res) => {
     res.json({ items: hideRestricted(req, store.continueList(uid(req), 10)) });
+  }, { access: CAN_READ });
+
+  // GET /api/reader/prefs — client-visible reader preferences. Gated by the
+  // reader permission on purpose: a role that can't open files gets ComicVine
+  // art on the grid instead of file-cover URLs it couldn't load anyway.
+  api.registerRoute('get', '/api/reader/prefs', (req, res) => {
+    res.json({ fileCovers: config.readerFileCovers !== false });
   }, { access: CAN_READ });
 
   // GET /api/reader/next-up — the next unread issue in each series you're into.
