@@ -41,6 +41,19 @@ export default function register(api) {
   // Read-only view of the core catalog (issue → file, series order).
   const cat = new Database(config.dbPath, { readonly: true });
 
+  // Reading prefs for a series. Manga reads right-to-left by default: with no
+  // saved prefs, seed rtl from the core library type — a user's explicit
+  // choice (any saved row) always wins, and saving works exactly as before.
+  const prefsFor = (userId, seriesId) => {
+    const saved = store.seriesPrefs(userId, seriesId);
+    if (saved) return saved;
+    try {
+      const s = cat.prepare('SELECT type FROM series WHERE id = ?').get(seriesId);
+      if (s?.type === 'manga') return { mode: null, rtl: 1, fit: null, split: 0, spread_offset: 0 };
+    } catch { /* core predates series.type — no seed */ }
+    return null;
+  };
+
   // Mature/restricted enforcement: a role without library.restricted cannot
   // open a restricted series' issues. Same permission engine core uses.
   const permCatalog = new Map([...CORE_PERMISSIONS, ...registeredPermissions()].map((p) => [p.key, p]));
@@ -127,7 +140,7 @@ export default function register(api) {
         progress: store.progress(uid(req), issue.id),
         bookmarks: store.bookmarks(uid(req), issue.id),
         later: store.isLater(uid(req), issue.id),
-        prefs: issue.series_id ? store.seriesPrefs(uid(req), issue.series_id) : null, // saves the client a roundtrip
+        prefs: issue.series_id ? prefsFor(uid(req), issue.series_id) : null, // saves the client a roundtrip
         info: issueInfo(issue.id),                                                    // credits/description overlay
       });
     } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
@@ -252,7 +265,7 @@ export default function register(api) {
   // GET/POST /api/reader/series/:id/prefs — per-series reading profile, so a
   // manga series remembers RTL+webtoon while US books stay single/LTR.
   api.registerRoute('get', '/api/reader/series/:id/prefs', (req, res) => {
-    res.json({ prefs: store.seriesPrefs(uid(req), Number(req.params.id)) });
+    res.json({ prefs: prefsFor(uid(req), Number(req.params.id)) });
   }, { access: CAN_READ });
   api.registerRoute('post', '/api/reader/series/:id/prefs', (req, res) => {
     store.saveSeriesPrefs(uid(req), Number(req.params.id), req.body || {});

@@ -8,6 +8,10 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+- Manga series (the core library type) open right-to-left by default — a
+  reader-settings change for the series always wins over the default.
+
 ## [1.4.1] — 2026-07-09
 
 ### Added
