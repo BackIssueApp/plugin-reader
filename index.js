@@ -185,6 +185,16 @@ export default function register(api) {
     res.json({ ok: true });
   }, { access: CAN_READ });
 
+  // POST /api/reader/read-bulk { ids: [cvIssueId], read } — bulk mark. The
+  // series page's checkboxes select issues; nothing checked = the whole series.
+  api.registerRoute('post', '/api/reader/read-bulk', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+    if (!ids.length) return res.status(400).json({ error: 'ids required' });
+    const read = !!(req.body || {}).read;
+    for (const id of ids) store.setRead(uid(req), id, read);
+    res.json({ done: ids.length });
+  }, { access: CAN_READ });
+
   // POST /api/reader/issue/:id/bookmark { page, on }
   api.registerRoute('post', '/api/reader/issue/:id/bookmark', (req, res) => {
     const { page, on } = req.body || {};

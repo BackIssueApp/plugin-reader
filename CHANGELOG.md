@@ -8,6 +8,11 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+- Bulk read status: **Mark read** / **Mark unread** buttons on the series page
+  act on the checked issues — or the whole series when nothing is checked
+  (needs BackIssue core with the selection bridge).
+
 ## [1.5.0] — 2026-07-16
 
 ### Added

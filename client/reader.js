@@ -1458,6 +1458,38 @@
         || readable.find((x) => !readStates[x.cv_issue_id]?.completed)
         || null;
     }
+    // Bulk read-state: acts on the CHECKED issues (core exposes the selection
+    // via BackIssue.selectedIssues), or the whole series when nothing is checked.
+    const bulkMark = async (issues, read) => {
+      const sel = (window.BackIssue?.selectedIssues?.() || []);
+      const rows = readableRows(issues);
+      const ids = sel.length ? sel : rows.map((x) => x.cv_issue_id);
+      if (!ids.length) return;
+      const r = await fetch('/api/reader/read-bulk', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, read }),
+      }).then((x) => x.json()).catch(() => ({ error: 'unreachable' }));
+      if (r.error) return;
+      for (const id of ids) {
+        const st = readStates[id] || { page: 0, pages: 0, completed: 0 };
+        readStates[id] = read ? { ...st, completed: 1, page: st.pages || st.page } : { ...st, completed: 0, page: 0 };
+      }
+      api.refreshIssueActions?.();
+    };
+    api.registerSeriesAction?.({
+      id: 'reader-mark-read',
+      when: (s, issues) => readableRows(issues).length > 0,
+      label: () => `${hicon('check', null, '✓')} Mark read`,
+      title: 'Mark the checked issues read (nothing checked = the whole series)',
+      run: (s, issues) => bulkMark(issues, true),
+    });
+    api.registerSeriesAction?.({
+      id: 'reader-mark-unread',
+      when: (s, issues) => issues.some((x) => readStates[x.cv_issue_id]?.completed || readStates[x.cv_issue_id]?.page > 0),
+      label: () => `${hicon('rotate-ccw', null, '↺')} Mark unread`,
+      title: 'Clear read progress for the checked issues (nothing checked = the whole series)',
+      run: (s, issues) => bulkMark(issues, false),
+    });
     api.registerSeriesAction?.({
       id: 'reader-continue',
       when: (s, issues) => readableRows(issues).length > 0,
