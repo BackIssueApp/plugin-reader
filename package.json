@@ -1,6 +1,6 @@
 {
   "name": "reader",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Feature-rich in-browser comic reader: paged/double/webtoon modes, progress and resume, bookmarks, offline reading, per-series profiles, home reading shelves",
   "directories": {
     "test": "tests"

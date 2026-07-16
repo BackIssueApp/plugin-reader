@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-07-16
+
 ### Added
 - Bulk read status: **Mark read** / **Mark unread** buttons on the series page
   act on the checked issues — or the whole series when nothing is checked
