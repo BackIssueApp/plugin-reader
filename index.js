@@ -7,7 +7,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import config from '../../src/config.js';
-import { listPages, pageBufferResized } from './pages.js';
+import { listPages, pageBuffer, pageBufferResized } from './pages.js';
+import { detectPanels, orderPanels } from './panels.js';
+import { createMlDetector } from './mlpanels.js';
+import { createPanelCache, pageHash, pageDhash } from './panelcache.js';
+import { ensurePanelModel } from './modeldl.js';
 import { roleGrants, CORE_PERMISSIONS } from '../../src/users.js';
 import { registeredPermissions } from '../../src/plugins.js';
 import { openReaderStore } from './store.js';
@@ -28,13 +32,71 @@ export default function register(api) {
     tier: 'viewer',
   });
 
+  // Hand-editing panel layouts changes what every reader of this server sees
+  // for that file — a curation act, so it defaults to the admin tier (grant
+  // it to trusted roles from Settings → Users).
+  const CAN_EDIT_PANELS = api.registerPermission ? 'reader.panels.edit' : 'admin';
+  api.registerPermission?.({
+    key: 'reader.panels.edit',
+    label: 'Edit panel layouts',
+    description: 'Correct guided-view panel boxes; edits apply server-wide for the file',
+    tier: 'admin',
+  });
+
   // Issue covers on the volume grid: prefer the file's own first page (default)
   // or ComicVine art. Registered so the value validates + persists; the default
   // is ON, set before core merges saved settings, so a saved 'false' wins.
   api.registerSettings?.({ readerFileCovers: { type: 'bool' } });
   if (config.readerFileCovers === undefined) config.readerFileCovers = true;
 
+  // Optional ML panel detector (see mlpanels.js). The model file is not
+  // bundled — drop it at <data dir>/models/panels.onnx or point the
+  // readerPanelModel setting at it. Absent model/runtime → classical
+  // detector, and readerPanelMl=false forces classical even with a model
+  // installed (config is live, so the settings toggle applies immediately).
+  api.registerSettings?.({ readerPanelModel: { type: 'string' }, readerPanelMl: { type: 'bool' } });
+  if (config.readerPanelMl === undefined) config.readerPanelMl = true;
+  const defaultModelPath = path.join(path.dirname(config.dbPath || '.'), 'models', 'panels.onnx');
+  const mlPanels = createMlDetector(config.readerPanelModel || defaultModelPath);
+  const mlActive = async () => config.readerPanelMl !== false && (await mlPanels.available());
+  mlPanels.available().then((ok) => {
+    if (ok) console.log('reader: ML panel detection active');
+  });
+
+  // Shared panel-detection cache. When on, an issue's page layouts are
+  // looked up in the community cache before detecting locally, and new
+  // detections + human corrections are shared back — so a page detected or
+  // fixed anywhere serves everyone. Only panel rectangles + a page-content
+  // hash leave the server; never image data or filenames. Default ON (the
+  // default set before core merges saved settings, so a saved 'false' wins);
+  // the Settings → Library toggle opts out entirely.
+  api.registerSettings?.({ readerPanelShare: { type: 'bool' } });
+  if (config.readerPanelShare === undefined) config.readerPanelShare = true;
+
   const store = openReaderStore(config.dbPath);
+
+  // Fetch the panel model from the CDN when it's missing (or upgrade one we
+  // previously downloaded). Non-blocking: the reader serves classical
+  // detection until the model lands; the detector re-checks per run, so no
+  // restart is needed once it does.
+  ensurePanelModel({
+    modelPath: defaultModelPath,
+    customPath: config.readerPanelModel || null,
+    enabled: config.readerPanelMl !== false,
+    store,
+  }).then((got) => {
+    if (got) mlPanels.available().then((ok) => { if (ok) console.log('reader: ML panel detection active (downloaded model)'); });
+  });
+
+  const panelCacheBase = String(config.cvBaseUrl || '').replace(/\/+$/, '') || 'https://data.backissue.app';
+  const panelCache = createPanelCache({
+    base: panelCacheBase,
+    store,
+    enabled: () => config.readerPanelShare === true,
+  });
+  // Engine tag stored with shared detections so newer models can supersede
+  // older cache entries (mirrors the local |ml* cache-key suffix).
+  const engineTag = async () => ((await mlActive()) ? 'ml-box-v2' : 'classical-v1'); // matches the |ml2 cache generation
   // Read history is PER USER: core's auth middleware stamps req.user; the
   // open-mode (no accounts) install reads as user 0.
   const uid = (req) => req.user?.id ?? 0;
@@ -169,6 +231,252 @@ export default function register(api) {
       res.send(buffer);
     } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
   }, { access: CAN_READ });
+
+  // GET /api/reader/issue/:id/panels[?rtl=1] — detected panel rects per page,
+  // in reading order, for guided (panel-by-panel) viewing. Detection is
+  // classical CV (see panels.js), computed ONCE per issue in the background
+  // and cached against the file (path|mtime|size — a re-download invalidates).
+  // While computing: { pending: true } — clients poll or fall back to page
+  // mode. Pages with no confident detection carry an empty panels array, and
+  // clients show those as whole pages.
+  const panelJobs = new Map(); // issueId → in-flight promise
+  const panelProgress = new Map(); // issueId → { done, total } while detecting
+  let panelQueue = Promise.resolve(); // one detection job at a time (CPU care)
+  const fileKeyOf = (p) => {
+    try { const st = fs.statSync(p); return `${p}|${Math.round(st.mtimeMs)}|${st.size}`; }
+    catch { return null; }
+  };
+  async function computePanels(issueId, filePath, fileKey) {
+    const names = await listPages(filePath);
+    const total = names.length;
+    panelProgress.set(issueId, { done: 0, total });
+    const share = panelCache.enabled();
+
+    // Phase 1: hash every page (cheap) and batch-look-up the community cache,
+    // so we only spend detection CPU on pages nobody has covered yet.
+    const hashes = new Array(total).fill(null);
+    let hits = new Map();
+    if (share) {
+      for (let i = 0; i < total; i++) {
+        try { hashes[i] = pageHash((await pageBuffer(filePath, i)).buffer); } catch { /* unreadable */ }
+      }
+      hits = await panelCache.lookup(hashes.filter(Boolean));
+    }
+
+    // Phase 2: fill from the cache where we can, detect the rest.
+    const { default: sharp } = share ? await import('sharp') : {};
+    const engine = share ? await engineTag() : null;
+    const pages = [];
+    const submit = [];
+    for (let i = 0; i < total; i++) {
+      let panels = [];
+      const hit = hashes[i] ? hits.get(hashes[i]) : null;
+      if (hit && Array.isArray(hit.panels)) {
+        panels = hit.panels;
+      } else {
+        try {
+          const { buffer } = await pageBuffer(filePath, i);
+          // ML first (null = ML unavailable, [] = a real page-mode verdict);
+          // classical detector when there's no model to run or ML is off.
+          const mlRects = (await mlActive()) ? await mlPanels.detect(buffer) : null;
+          panels = mlRects ?? (await detectPanels(buffer));
+          // Only ML layouts are worth sharing — the classical detector's
+          // output is too weak for a communal pool (two classical instances
+          // could corroborate a bad layout into being served everywhere).
+          // Human edits still upload regardless of detector, elsewhere.
+          if (share && hashes[i] && mlRects !== null) {
+            submit.push({ hash: hashes[i], dhash: await pageDhash(sharp, buffer), source: 'model', engine, panels });
+          }
+        } catch { /* unreadable page → page mode */ }
+      }
+      pages.push({ page: i, panels });
+      panelProgress.set(issueId, { done: i + 1, total });
+    }
+    store.savePanels(issueId, fileKey, pages);
+    if (submit.length) panelCache.submit(submit); // best-effort contribution
+    return pages;
+  }
+
+  // Vote on a page's served community layout (fire-and-forget).
+  async function votePage(filePath, pageNo, dir) {
+    if (!panelCache.enabled()) return;
+    try {
+      const { buffer } = await pageBuffer(filePath, pageNo);
+      panelCache.vote(pageHash(buffer), dir);
+    } catch { /* best-effort */ }
+  }
+
+  // Share a hand-corrected page to the community cache as a HUMAN layout (beats
+  // any model consensus). Best-effort and fire-and-forget: hashing the page
+  // must never block or fail the save that already succeeded.
+  async function shareHumanEdit(filePath, pageNo, panels) {
+    if (!panelCache.enabled()) return;
+    try {
+      const { buffer } = await pageBuffer(filePath, pageNo);
+      const { default: sharp } = await import('sharp');
+      panelCache.submit([{
+        hash: pageHash(buffer),
+        dhash: await pageDhash(sharp, buffer),
+        source: 'human',
+        engine: 'human',
+        panels,
+      }]);
+    } catch { /* sharing is best-effort; the local override is already saved */ }
+  }
+  api.registerRoute('get', '/api/reader/issue/:id/panels', async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (blockedRestricted(req, id)) return res.status(404).json({ error: 'no file for this issue' });
+      const issue = issueRow(id);
+      if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
+      const rawKey = fileKeyOf(issue.file_path);
+      if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
+      // The engine is part of the cache key: turning the ML model on (or off)
+      // recomputes each issue once instead of serving the other engine's rects.
+      let fileKey = rawKey;
+      if (await mlActive()) fileKey += `|ml2:${await mlPanels.modelId()}`; // postprocess generation + model content id
+      const rtl = req.query.rtl === '1';
+      // Human corrections are keyed to the raw file (no engine suffix) and
+      // replace the detector's layout for their pages. Their array order IS
+      // the reading order — never re-sorted, so an editor's RTL fix sticks.
+      const override = store.panelsOverride(id, rawKey) || {};
+      const reviewedSet = new Set(store.reviewedPages(id, rawKey));
+      const cached = store.panels(id, fileKey);
+      if (cached) {
+        return res.json({
+          ready: true,
+          rtl,
+          pages: cached.map((p) => ({
+            ...(override[String(p.page)]
+              ? { page: p.page, panels: override[String(p.page)], edited: true }
+              : { page: p.page, panels: orderPanels(p.panels || [], rtl) }),
+            ...(reviewedSet.has(p.page) ? { reviewed: true } : {}),
+          })),
+        });
+      }
+      if (!panelJobs.has(id)) {
+        const job = (panelQueue = panelQueue.then(() =>
+          computePanels(id, issue.file_path, fileKey).catch((e) => {
+            console.warn(`panel detection failed for issue ${id}:`, e?.message || e);
+            // Cache an all-page-mode result so a broken file isn't retried forever.
+            store.savePanels(id, fileKey, []);
+          })
+        )).finally(() => { panelJobs.delete(id); panelProgress.delete(id); });
+        panelJobs.set(id, job);
+      }
+      // done/total appear once this issue's job actually starts (jobs run one
+      // at a time) — before that, clients just know it's pending.
+      res.json({ ready: false, pending: true, ...(panelProgress.get(id) || {}) });
+    } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+  }, { access: CAN_READ });
+
+  // Capability probe: 200 only for users allowed to edit layouts — the
+  // client uses it to decide whether to show the editor button at all.
+  api.registerRoute('get', '/api/reader/can-edit-panels', (req, res) => {
+    res.json({ ok: true });
+  }, { access: CAN_EDIT_PANELS });
+
+  // PUT /api/reader/issue/:id/panels/page/:page  { panels: [{x,y,w,h,poly?}] }
+  // Save a hand-edited layout for ONE page ([] = force page mode). Validated
+  // hard — this JSON is served to every client that opens the issue.
+  api.registerRoute('put', '/api/reader/issue/:id/panels/page/:page', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const pageNo = Number(req.params.page);
+      if (!Number.isInteger(pageNo) || pageNo < 0) return res.status(400).json({ error: 'bad page' });
+      const issue = issueRow(id);
+      if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
+      const rawKey = fileKeyOf(issue.file_path);
+      if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
+      const panels = sanitizePanels(req.body?.panels);
+      if (!panels) return res.status(400).json({ error: 'invalid panels payload' });
+      store.savePanelsOverride(id, rawKey, pageNo, panels);
+      store.setReviewed(id, rawKey, pageNo, true); // editing implies a human looked
+      shareHumanEdit(issue.file_path, pageNo, panels); // outrank model consensus everywhere
+      res.json({ ok: true, panels });
+    } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+  }, { access: CAN_EDIT_PANELS });
+
+  // DELETE .../panels/page/:page — revert one page to the detector's layout.
+  api.registerRoute('delete', '/api/reader/issue/:id/panels/page/:page', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const issue = issueRow(id);
+      if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
+      const rawKey = fileKeyOf(issue.file_path);
+      if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
+      store.clearPanelsOverride(id, rawKey, Number(req.params.page));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+  }, { access: CAN_EDIT_PANELS });
+
+  // POST /api/reader/issue/:id/panels/redetect — throw away this issue's
+  // cached auto-detection so it recomputes with whatever detector is loaded
+  // now (use after swapping the model). ?edits=clear also drops human
+  // overrides + review marks for a clean slate; by default they're kept.
+  api.registerRoute('post', '/api/reader/issue/:id/panels/redetect', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const issue = issueRow(id);
+      if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
+      store.clearPanels(id);
+      panelJobs.delete(id);
+      if (req.query.edits === 'clear') {
+        const rawKey = fileKeyOf(issue.file_path);
+        if (rawKey) { store.clearPanelsOverride(id, rawKey); store.reviewedPages(id, rawKey).forEach((p) => store.setReviewed(id, rawKey, p, false)); }
+      }
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+  }, { access: CAN_EDIT_PANELS });
+
+  // PUT/DELETE /api/reader/issue/:id/panels/reviewed/:page — mark a page as
+  // human-reviewed ("the layout reads correctly"), or take the mark back.
+  for (const [method, on] of [['put', true], ['delete', false]]) {
+    api.registerRoute(method, '/api/reader/issue/:id/panels/reviewed/:page', (req, res) => {
+      try {
+        const id = Number(req.params.id);
+        const pageNo = Number(req.params.page);
+        if (!Number.isInteger(pageNo) || pageNo < 0) return res.status(400).json({ error: 'bad page' });
+        const issue = issueRow(id);
+        if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
+        const rawKey = fileKeyOf(issue.file_path);
+        if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
+        store.setReviewed(id, rawKey, pageNo, on);
+        // A human confirming "this layout reads correctly" is the strongest
+        // cheap signal the community cache gets — share it as a vote
+        // (retracting the review retracts the vote; one vote per instance
+        // per page is enforced server-side).
+        votePage(issue.file_path, pageNo, on ? 1 : -1);
+        res.json({ ok: true });
+      } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+    }, { access: CAN_EDIT_PANELS });
+  }
+
+  // Normalized panel payload → clean panels or null. Max 24 panels, rects in
+  // [0,1] with sane size, optional 3-8 point poly also in [0,1].
+  function sanitizePanels(input) {
+    if (!Array.isArray(input) || input.length > 24) return null;
+    const out = [];
+    for (const p of input) {
+      const x = num01(p?.x), y = num01(p?.y), w = num01(p?.w), h = num01(p?.h);
+      if (x == null || y == null || w == null || h == null) return null;
+      if (w < 0.01 || h < 0.01 || x + w > 1.001 || y + h > 1.001) return null;
+      const clean = { x, y, w, h };
+      if (p.poly != null) {
+        if (!Array.isArray(p.poly) || p.poly.length < 3 || p.poly.length > 8) return null;
+        const pts = [];
+        for (const pt of p.poly) {
+          const px = num01(pt?.[0]), py = num01(pt?.[1]);
+          if (px == null || py == null) return null;
+          pts.push([px, py]);
+        }
+        clean.poly = pts;
+      }
+      out.push(clean);
+    }
+    return out;
+  }
+  const num01 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(1, Math.max(0, v)) * 10000) / 10000 : null);
 
   // POST /api/reader/issue/:id/progress { page, pages, completed }
   // History writes ride the same reader.read permission as reading itself —

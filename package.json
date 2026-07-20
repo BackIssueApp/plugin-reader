@@ -1,6 +1,6 @@
 {
   "name": "reader",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Feature-rich in-browser comic reader: paged/double/webtoon modes, progress and resume, bookmarks, offline reading, per-series profiles, home reading shelves",
   "directories": {
     "test": "tests"
@@ -15,5 +15,8 @@
   "private": true,
   "dependencies": {
     "sharp": "^0.35.3"
+  },
+  "optionalDependencies": {
+    "onnxruntime-node": "^1.27.0"
   }
 }

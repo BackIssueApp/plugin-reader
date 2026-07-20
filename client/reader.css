@@ -87,6 +87,7 @@ html:has(.reader.is-open) { overscroll-behavior-y: none; }
 }
 .reader__stagewrap.is-zoomed { cursor: grab; }
 .reader__stage {
+  position: relative; /* anchors the guided-view spotlight overlay */
   display: flex; align-items: center; justify-content: center; gap: 0;
   transform-origin: center center; transition: transform 0.08s linear;
   filter: var(--reader-filter, brightness(var(--reader-brightness, 1)));
@@ -301,3 +302,123 @@ html:has(.reader.is-open) { overscroll-behavior-y: none; }
 .reader__rails-prefs { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px; }
 .reader__rails-note { margin: 0; font-size: 12px; opacity: 0.6; }
 .reader__rails-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
+
+/* ---------- guided (panel-by-panel) view ---------- */
+.reader__stagewrap.is-guided .reader__stage { transition: transform .32s cubic-bezier(.25,.8,.35,1); }
+/* Spotlight: a transparent window over the framed panel whose oversized
+   box-shadow dims the rest of the page (and the letterboxing around it).
+   It sits inside the stage, so the camera transform carries it along; the
+   left/top/width/height transition matches the camera's curve so the dim
+   window and the zoom travel together. */
+.reader__spot {
+  position: absolute; pointer-events: none; z-index: 2;
+  border-radius: 4px;
+  box-shadow: 0 0 0 400vmax rgba(6, 4, 10, 0.72);
+  transition: left .32s cubic-bezier(.25,.8,.35,1), top .32s cubic-bezier(.25,.8,.35,1),
+              width .32s cubic-bezier(.25,.8,.35,1), height .32s cubic-bezier(.25,.8,.35,1);
+}
+/* Polygon spotlight (diagonal panels): SVG overlay whose even-odd path dims
+   everything outside the panel's actual shape. */
+.reader__spotpoly {
+  position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2;
+  overflow: visible;
+}
+.reader__spotpoly path { fill: rgba(6, 4, 10, 0.72); transition: d .32s cubic-bezier(.25,.8,.35,1); }
+@media (prefers-reduced-motion: reduce) {
+  .reader__stagewrap.is-guided .reader__stage { transition: none; }
+  .reader__spot { transition: none; }
+  .reader__spotpoly path { transition: none; }
+}
+.reader__btn.r-guided.is-on { color: var(--accent, #ff2d6f); }
+/* ---------- panel studio (full-issue layout editor) ---------- */
+.pstudio {
+  position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+  background: var(--bg, #15131c); color: var(--text, #ece8f1);
+}
+.pstudio__head {
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.1); font-size: 14px;
+}
+.pstudio__status { color: rgba(236,232,241,.6); font-size: 12.5px; }
+.pstudio__btn {
+  background: rgba(255,255,255,.08); color: var(--text, #ece8f1); border: 0; border-radius: 8px;
+  padding: 8px 12px; font: 500 13px system-ui; cursor: pointer; white-space: nowrap;
+}
+.pstudio__btn:hover:not(:disabled) { background: rgba(255,255,255,.16); }
+.pstudio__btn:disabled { opacity: .45; cursor: default; }
+.ps-saveall:not(:disabled) { background: var(--accent, #ff2d6f); color: #fff; }
+.pstudio__btn.is-on { background: var(--accent, #ff2d6f); color: #fff; }
+.pstudio__body { flex: 1; display: flex; min-height: 0; }
+.pstudio__side {
+  display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;
+  border-right: 1px solid rgba(255,255,255,.1);
+}
+.pstudio__chips { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px 4px; }
+.pstudio__chips button {
+  background: rgba(255,255,255,.06); color: var(--text, #ece8f1); border: 0; border-radius: 6px;
+  padding: 5px 8px; font: 500 11.5px system-ui; cursor: pointer; text-align: left;
+}
+.pstudio__chips button.is-on { background: var(--accent, #ff2d6f); color: #fff; }
+.pstudio__rail {
+  width: 128px; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px;
+}
+.pstudio__railempty { color: rgba(236,232,241,.45); font: 12px system-ui; padding: 8px 2px; }
+.pstudio__thumb {
+  position: relative; border: 2px solid transparent; border-radius: 8px; padding: 0; cursor: pointer;
+  background: none; overflow: hidden; line-height: 0;
+  flex-shrink: 0; /* thumbnails keep their size; the rail scrolls instead */
+}
+.pstudio__thumb img { width: 100%; border-radius: 6px; }
+.pstudio__thumb.is-cur { border-color: var(--accent, #ff2d6f); }
+.pstudio__thumb span, .pstudio__thumb em {
+  position: absolute; bottom: 4px; font: 700 11px system-ui; font-style: normal; line-height: 1;
+  padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,.72); color: #fff;
+}
+.pstudio__thumb span { left: 4px; }
+.pstudio__thumb em { right: 4px; color: #9adcff; }
+.pstudio__thumb--edited em { color: #ffd166; }
+.pstudio__thumb--dirty em { color: var(--accent, #ff2d6f); }
+.pstudio__tick {
+  position: absolute; top: 4px; right: 4px; font: 700 12px system-ui; font-style: normal;
+  padding: 1px 5px; border-radius: 4px; background: rgba(38,166,91,.92); color: #fff;
+}
+.pstudio__main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.pstudio__canvas { flex: 1; overflow: auto; padding: 12px; }
+.pstudio__zoombox {
+  position: relative; min-width: 100%; min-height: 100%;
+  display: flex; align-items: safe center; justify-content: safe center;
+}
+.pstudio__img { max-width: 100%; max-height: calc(100dvh - 170px); object-fit: contain; user-select: none; }
+.pstudio__edit { position: absolute; touch-action: none; }
+.pstudio__edit svg { display: block; overflow: visible; }
+.pstudio__edit .ed-p { fill: rgba(58,160,255,.10); stroke: #3aa0ff; stroke-width: 3; cursor: move; }
+.pstudio__edit .ed-p.is-free { stroke-dasharray: 10 6; } /* unlocked corners */
+.pstudio__edit g.is-sel .ed-p { fill: rgba(255,45,111,.12); stroke: var(--accent, #ff2d6f); stroke-width: 4; }
+.pstudio__edit g.is-ordered .ed-p { fill: rgba(87,255,20,.14); stroke: #57ff14; }
+.pstudio__edit .ed-h {
+  fill: var(--accent, #ff2d6f); stroke: #fff; stroke-width: 2.5; cursor: grab; touch-action: none;
+  r: 11;
+}
+@media (pointer: coarse) { .pstudio__edit .ed-h { r: 17; } } /* finger-sized on touch */
+.pstudio__edit .ed-ghost {
+  fill: rgba(255,45,111,.08); stroke: var(--accent, #ff2d6f); stroke-width: 3; stroke-dasharray: 8 6;
+  pointer-events: none;
+}
+.pstudio__edit .ed-dim { fill: rgba(6,4,10,.72); pointer-events: none; }
+.pstudio__edit .ed-ghostline {
+  fill: rgba(255,45,111,.06); stroke: var(--accent, #ff2d6f); stroke-width: 3; stroke-dasharray: 8 6;
+  pointer-events: none;
+}
+.pstudio__edit .ed-draftpt { fill: var(--accent, #ff2d6f); stroke: #fff; stroke-width: 2.5; pointer-events: none; }
+.pstudio__edit .ed-draftpt.is-first { fill: #fff; stroke: var(--accent, #ff2d6f); stroke-width: 4; } /* click me to close */
+.pstudio__edit text {
+  fill: #fff; font: 700 15px system-ui; paint-order: stroke; stroke: rgba(0,0,0,.75); stroke-width: 4px;
+  pointer-events: none;
+}
+.pstudio__tools {
+  display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap; justify-content: center;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+@media (max-width: 640px) {
+  .pstudio__rail { width: 84px; }
+}

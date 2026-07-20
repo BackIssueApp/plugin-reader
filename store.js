@@ -42,6 +42,33 @@ export function openReaderStore(dbPath) {
       PRIMARY KEY (user_id, series_id)
     );
     CREATE TABLE IF NOT EXISTS reader_meta (key TEXT PRIMARY KEY, value TEXT);
+    -- Detected panel rects per issue (derived, per-FILE data — not per-user).
+    -- file_key = path|mtime|size of the file detection ran on; a changed file
+    -- invalidates the row. pages = JSON [{page, panels:[{x,y,w,h}]}].
+    CREATE TABLE IF NOT EXISTS reader_panels (
+      issue_id   INTEGER PRIMARY KEY,
+      file_key   TEXT NOT NULL,
+      pages      TEXT NOT NULL,
+      created_at TEXT
+    );
+    -- Hand-edited panel layouts (sparse: only pages a human corrected).
+    -- Overrides beat any detector output and survive model upgrades; file_key
+    -- has no engine suffix — the correction belongs to the FILE.
+    -- pages = JSON { "<pageIndex>": [{x,y,w,h,poly?}] } in reading order.
+    CREATE TABLE IF NOT EXISTS reader_panels_user (
+      issue_id   INTEGER PRIMARY KEY,
+      file_key   TEXT NOT NULL,
+      pages      TEXT NOT NULL,
+      updated_at TEXT
+    );
+    -- Pages a human has REVIEWED (confirmed the layout reads correctly, with
+    -- or without editing it). pages = JSON array of page indexes.
+    CREATE TABLE IF NOT EXISTS reader_panels_review (
+      issue_id   INTEGER PRIMARY KEY,
+      file_key   TEXT NOT NULL,
+      pages      TEXT NOT NULL,
+      updated_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS reader_stats_daily (
       user_id   INTEGER NOT NULL,
       day       TEXT NOT NULL,             -- YYYY-MM-DD (UTC)
@@ -414,6 +441,83 @@ export function openReaderStore(dbPath) {
            GROUP BY cs.comicvine_id ORDER BY finished DESC, cs.name LIMIT 5`).all(userId);
       } catch { /* core CV tables absent — stats still work without the ranking */ }
       return { totals, month, last30, streak, topSeries };
+    },
+    /** Small key/value store (reader_meta) for plugin-internal state like the
+     *  shared-cache instance key. */
+    getMeta(key) {
+      return db.prepare('SELECT value FROM reader_meta WHERE key = ?').get(key)?.value ?? null;
+    },
+    setMeta(key, value) {
+      db.prepare('INSERT INTO reader_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
+    },
+    /** Cached panel detection for an issue, if it matches the current file. */
+    panels(issueId, fileKey) {
+      const r = db.prepare('SELECT file_key, pages FROM reader_panels WHERE issue_id = ?').get(issueId);
+      if (!r || r.file_key !== fileKey) return null;
+      try { return JSON.parse(r.pages); } catch { return null; }
+    },
+    /** Drop the cached AUTO detection for an issue so it recomputes on next
+     *  open (e.g. after swapping the model). Human overrides are untouched. */
+    clearPanels(issueId) {
+      db.prepare('DELETE FROM reader_panels WHERE issue_id = ?').run(issueId);
+    },
+    savePanels(issueId, fileKey, pages) {
+      db.prepare(`
+        INSERT INTO reader_panels (issue_id, file_key, pages, created_at)
+        VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        ON CONFLICT(issue_id) DO UPDATE SET
+          file_key = excluded.file_key, pages = excluded.pages, created_at = excluded.created_at
+      `).run(issueId, fileKey, JSON.stringify(pages));
+    },
+    /** Hand-edited layouts for an issue: { "<page>": panels[] } or null. */
+    panelsOverride(issueId, fileKey) {
+      const r = db.prepare('SELECT file_key, pages FROM reader_panels_user WHERE issue_id = ?').get(issueId);
+      if (!r || r.file_key !== fileKey) return null;
+      try { return JSON.parse(r.pages); } catch { return null; }
+    },
+    /** Upsert one page's hand-edited layout (panels = [] means "page mode").
+     *  A fileKey change discards stale overrides — they described a different file. */
+    savePanelsOverride(issueId, fileKey, page, panels) {
+      const existing = this.panelsOverride(issueId, fileKey) || {};
+      existing[String(page)] = panels;
+      db.prepare(`
+        INSERT INTO reader_panels_user (issue_id, file_key, pages, updated_at)
+        VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        ON CONFLICT(issue_id) DO UPDATE SET
+          file_key = excluded.file_key, pages = excluded.pages, updated_at = excluded.updated_at
+      `).run(issueId, fileKey, JSON.stringify(existing));
+    },
+    /** Pages of this file a human has reviewed (array of page indexes). */
+    reviewedPages(issueId, fileKey) {
+      const r = db.prepare('SELECT file_key, pages FROM reader_panels_review WHERE issue_id = ?').get(issueId);
+      if (!r || r.file_key !== fileKey) return [];
+      try { return JSON.parse(r.pages); } catch { return []; }
+    },
+    /** Mark (or unmark) one page as human-reviewed. */
+    setReviewed(issueId, fileKey, page, on = true) {
+      const set = new Set(this.reviewedPages(issueId, fileKey));
+      if (on) set.add(page); else set.delete(page);
+      db.prepare(`
+        INSERT INTO reader_panels_review (issue_id, file_key, pages, updated_at)
+        VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+        ON CONFLICT(issue_id) DO UPDATE SET
+          file_key = excluded.file_key, pages = excluded.pages, updated_at = excluded.updated_at
+      `).run(issueId, fileKey, JSON.stringify([...set].sort((a, b) => a - b)));
+    },
+    /** Drop the hand-edit for one page (or the whole issue when page == null). */
+    clearPanelsOverride(issueId, fileKey, page = null) {
+      if (page == null) {
+        db.prepare('DELETE FROM reader_panels_user WHERE issue_id = ?').run(issueId);
+        return;
+      }
+      const existing = this.panelsOverride(issueId, fileKey) || {};
+      delete existing[String(page)];
+      if (Object.keys(existing).length === 0) {
+        db.prepare('DELETE FROM reader_panels_user WHERE issue_id = ?').run(issueId);
+      } else {
+        db.prepare('UPDATE reader_panels_user SET pages = ? WHERE issue_id = ?')
+          .run(JSON.stringify(existing), issueId);
+      }
     },
     /** Per-user, per-series reading profile — your manga stays RTL, theirs doesn't. */
     seriesPrefs(userId, seriesId) {

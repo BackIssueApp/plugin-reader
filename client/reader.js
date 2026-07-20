@@ -17,6 +17,8 @@
   // looks identical everywhere. Feather/Lucide-style 24px stroke paths.
   const ICON_PATHS = {
     close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    panels: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>',
+    'edit-panels': '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 15l6-6M13 8l2.5 2.5" stroke-linecap="round"/>',
     'zoom-in': '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/>',
     'zoom-out': '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35M8 11h6"/>',
     rotate: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
@@ -76,6 +78,9 @@
     let manifest = null;
     let page = 0, half = 0;      // half: 0/1 sub-page when splitting a wide page
     let zoom = 1, panX = 0, panY = 0, rotate = 0; // rotate: 0/90/180/270, per-session
+    // Guided (panel-by-panel) view: server-detected rects per page, framed one
+    // at a time by driving the same zoom/pan transform the reader already has.
+    let guided = false, guidedIdx = 0, guidedArrive = 0, panelMap = null, panelsFetching = false;
     let chromeTimer = null, progressTimer = null;
     let wide = {};
     let bookmarks = new Set();
@@ -146,6 +151,7 @@
       later = !!m.later;
       bookmarks = new Set(m.bookmarks || []);
       wide = {}; zoom = 1; panX = panY = 0; half = 0; rotate = 0;
+      panelMap = null; guidedIdx = 0; guidedArrive = 0; panelsFetching = false;
       if (!overlay) build();
       // Per-series reading profile (carried on the manifest) overrides the
       // device defaults.
@@ -274,6 +280,7 @@
           <button class="reader__btn r-mode"     title="Reading mode (d/w)" aria-label="Reading mode"></button>
           <button class="reader__btn r-rtl"      title="Reading direction (m)" aria-label="Reading direction"></button>
           <button class="reader__btn r-fit"      title="Fit (h/v/o)" aria-label="Fit mode"></button>
+          <button class="reader__btn r-guided"   title="Guided panel view (g)" aria-label="Guided panel view">${icon('panels')}</button>
           <button class="reader__btn r-zoom-out" title="Zoom out (-)" aria-label="Zoom out">${icon('zoom-out')}</button>
           <button class="reader__btn r-zoom-in"  title="Zoom in (+)" aria-label="Zoom in">${icon('zoom-in')}</button>
           <button class="reader__btn r-rotate"   title="Rotate page (r)" aria-label="Rotate page">${icon('rotate')}</button>
@@ -373,7 +380,7 @@
       // secondary tools live in a quick-actions row inside the settings
       // popover; the bar keeps close/title/bookmark/settings/fullscreen. The
       // real elements move (same handlers, no duplicate state).
-      const toolBtns = ['.r-mode', '.r-rtl', '.r-fit', '.r-zoom-out', '.r-zoom-in', '.r-rotate', '.r-info', '.r-offline']
+      const toolBtns = ['.r-mode', '.r-rtl', '.r-fit', '.r-guided', '.r-zoom-out', '.r-zoom-in', '.r-rotate', '.r-info', '.r-offline']
         .map((sel) => overlay.querySelector(sel));
       const mq = matchMedia('(max-width: 640px)');
       const placeTools = () => {
@@ -391,7 +398,8 @@
         if (e.target === overlay && overlay.classList.contains('is-panelonly')) closeReader();
       });
       els.mode.onclick = () => { setMode(settings.mode === 'single' ? 'double' : settings.mode === 'double' ? 'webtoon' : 'single'); saveSeriesPrefs(); };
-      els.rtl.onclick = () => { settings.rtl = !settings.rtl; saveSeriesPrefs(); refreshButtons(); render(); };
+      els.rtl.onclick = () => { settings.rtl = !settings.rtl; saveSeriesPrefs(); refreshButtons(); panelMap = null; if (guided) fetchPanels(true); render(); };
+      overlay.querySelector('.r-guided').onclick = toggleGuided;
       els.fit.onclick = () => { settings.fit = settings.fit === 'height' ? 'width' : settings.fit === 'width' ? 'orig' : 'height'; zoom = 1; panX = panY = 0; saveSeriesPrefs(); refreshButtons(); render(); };
       overlay.querySelector('.r-zoom-in').onclick = () => setZoom(zoom * 1.25);
       overlay.querySelector('.r-zoom-out').onclick = () => setZoom(zoom / 1.25);
@@ -568,6 +576,7 @@
       preload(spread[spread.length - 1]);
       syncHud();
       maybeFinish();
+      if (guided) applyGuided();
     }
 
     function buildPageImg(n) {
@@ -698,9 +707,168 @@
       if (img) { if (!img.src) { img.src = pageUrl(n); img.style.height = ''; } img.scrollIntoView(); }
     }
 
+    // ---------- guided (panel-by-panel) view ----------
+    const panelsFor = (n) => (panelMap && panelMap.get(n)) || [];
+
+    function toggleGuided() {
+      guided = !guided;
+      els.stagewrap.classList.toggle('is-guided', guided);
+      overlay.querySelector('.r-guided')?.classList.toggle('is-on', guided);
+      if (guided) {
+        if (settings.mode !== 'single') setMode('single');
+        rotate = 0;
+        if (!panelMap) fetchPanels();
+        else { guidedIdx = 0; applyGuided(); }
+        toast('Guided view — panels one at a time (g to exit)');
+      } else {
+        els.stage.querySelector('.reader__spot')?.remove();
+        els.stage.querySelector('.reader__spotpoly')?.remove();
+        zoom = 1; panX = panY = 0;
+        els.stage.style.transform = stageTransform();
+        els.stagewrap.classList.remove('is-zoomed');
+        toast('Guided view off');
+      }
+    }
+
+    // Panels come from the server's one-time detection; while it runs we poll
+    // quietly and read full pages. Pages with no confident layout stay full
+    // pages inside guided mode — advancing just turns the page.
+    async function fetchPanels(silent) {
+      if (!manifest || panelsFetching) return;
+      panelsFetching = true;
+      try {
+        const r = await fetch(`/api/reader/issue/${manifest.issue.id}/panels${settings.rtl ? '?rtl=1' : ''}`);
+        const j = r.ok ? await r.json() : null;
+        if (j && j.ready) {
+          panelMap = new Map(j.pages.map((p) => [p.page, p.panels || []]));
+          panelsFetching = false;
+          if (guided) {
+            guidedIdx = Math.min(guidedIdx, Math.max(0, panelsFor(page).length - 1));
+            applyGuided();
+            if (!silent && !panelsFor(page).length) toast('No panels detected here — full page');
+          }
+          return;
+        }
+        if (j && j.pending) {
+          // Progress arrives once the issue's detection job is running
+          // (jobs queue one at a time). Keep the toast alive with the page
+          // count while in guided view — it's the only wait state there is.
+          if (guided && j.total) toast(`Detecting panels… ${j.done ?? 0}/${j.total} pages`);
+          else if (!silent) toast('Detecting panels…');
+          setTimeout(() => { panelsFetching = false; if (guided) fetchPanels(true); }, j.total ? 1200 : 2500);
+          return;
+        }
+      } catch { /* offline / older server — guided stays full-page */ }
+      panelsFetching = false;
+    }
+
+    // Advance within the page's panels; false = let normal page nav handle it
+    // (stamping the direction so goTo enters the next page at the right end).
+    function guidedAdvance(dir) {
+      if (!guided || settings.mode !== 'single' || splitActive()) return false;
+      const rects = panelsFor(page);
+      const ni = guidedIdx + dir;
+      if (!rects.length || ni < 0 || ni >= rects.length) { guidedArrive = dir; return false; }
+      guidedIdx = ni;
+      applyGuided();
+      return true;
+    }
+
+    // Frame the current panel by driving zoom/panX/panY. Measured with the
+    // transform removed and restored in the same task, so nothing paints in
+    // between; the CSS transition (is-guided) animates old → new frame.
+    function applyGuided() {
+      if (!guided || settings.mode !== 'single') return;
+      if (!panelMap && !panelsFetching) fetchPanels(true);
+      const rects = panelsFor(page);
+      const img = els.stage.querySelector('.reader__page');
+      if (!img) return;
+      if (!rects.length) {
+        els.stage.querySelector('.reader__spot')?.remove();
+        els.stage.querySelector('.reader__spotpoly')?.remove();
+        zoom = 1; panX = panY = 0;
+        els.stage.style.transform = stageTransform();
+        els.stagewrap.classList.remove('is-zoomed');
+        syncHud();
+        return;
+      }
+      if (!img.complete || !img.naturalWidth) { img.addEventListener('load', () => applyGuided(), { once: true }); return; }
+      const r = rects[Math.max(0, Math.min(guidedIdx, rects.length - 1))];
+      const prevTransform = els.stage.style.transform;
+      els.stage.style.transition = 'none';
+      els.stage.style.transform = 'none';
+      const wrap = els.stagewrap.getBoundingClientRect();
+      const ib = img.getBoundingClientRect();
+      const sb = els.stage.getBoundingClientRect();
+      els.stage.style.transform = prevTransform;
+      void els.stage.offsetWidth; // flush: the transition animates FROM the old frame
+      els.stage.style.transition = '';
+      const pw = Math.max(1, r.w * ib.width), ph = Math.max(1, r.h * ib.height);
+      const pcx = ib.left + (r.x + r.w / 2) * ib.width;
+      const pcy = ib.top + (r.y + r.h / 2) * ib.height;
+      const cx = sb.left + sb.width / 2, cy = sb.top + sb.height / 2; // transform origin
+      const s = Math.max(1, Math.min(6, Math.min(wrap.width / pw, wrap.height / ph) * 0.96));
+      zoom = s;
+      panX = (wrap.left + wrap.width / 2) - cx - (pcx - cx) * s;
+      panY = (wrap.top + wrap.height / 2) - cy - (pcy - cy) * s;
+      els.stage.style.transform = stageTransform();
+      els.stagewrap.classList.toggle('is-zoomed', s > 1.01);
+      // Spotlight: dim everything but the framed panel. Overlays live inside
+      // the stage in LAYOUT coordinates (ib/sb were measured with the
+      // transform stripped), so the stage transform carries them along.
+      if (r.poly && r.poly.length >= 3) applyPolySpot(r, ib, sb);
+      else applyRectSpot(r, ib, sb);
+      syncHud();
+    }
+
+    // Rectangular panels: a transparent window whose giant box-shadow dims
+    // the rest of the page and the letterboxing.
+    function applyRectSpot(r, ib, sb) {
+      els.stage.querySelector('.reader__spotpoly')?.remove();
+      let spot = els.stage.querySelector('.reader__spot');
+      if (!spot) {
+        spot = document.createElement('div');
+        spot.className = 'reader__spot';
+        els.stage.appendChild(spot);
+        void spot.offsetWidth; // paint once at the new position before transitioning
+      }
+      spot.style.left = `${ib.left - sb.left + r.x * ib.width}px`;
+      spot.style.top = `${ib.top - sb.top + r.y * ib.height}px`;
+      spot.style.width = `${r.w * ib.width}px`;
+      spot.style.height = `${r.h * ib.height}px`;
+    }
+
+    // Non-rectangular panels (diagonal gutters): an SVG overlay whose
+    // even-odd path is "whole stage minus the panel polygon" — the dim
+    // follows the actual slanted borders instead of a bounding box.
+    function applyPolySpot(r, ib, sb) {
+      els.stage.querySelector('.reader__spot')?.remove();
+      let svg = els.stage.querySelector('.reader__spotpoly');
+      const W = Math.max(1, Math.round(sb.width));
+      const H = Math.max(1, Math.round(sb.height));
+      if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'reader__spotpoly');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('fill-rule', 'evenodd');
+        svg.appendChild(path);
+        els.stage.appendChild(svg);
+      }
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      svg.style.width = `${W}px`;
+      svg.style.height = `${H}px`;
+      const pts = r.poly.map(([px, py]) =>
+        `${(ib.left - sb.left + px * ib.width).toFixed(1)} ${(ib.top - sb.top + py * ib.height).toFixed(1)}`);
+      // Pad the outer rect generously: at high zoom the stage box is larger
+      // than the visible wrap, and the dim must reach every edge.
+      svg.querySelector('path').setAttribute('d',
+        `M ${-W} ${-H} H ${W * 2} V ${H * 2} H ${-W} Z M ${pts.join(' L ')} Z`);
+    }
+
     // ---------- navigation ----------
     function stepSize() { return settings.mode === 'double' ? spreadFor(page).length : 1; }
     function next() {
+      if (guidedAdvance(1)) return;
       if (splitActive() && half === 0) { half = 1; render(); return; }
       const target = page + stepSize();
       if (target >= manifest.pages) return maybeFinish(true);
@@ -708,6 +876,7 @@
       goTo(target);
     }
     function prev() {
+      if (guidedAdvance(-1)) return;
       if (splitActive() && half === 1) { half = 0; render(); return; }
       if (page === 0) return;
       let target = page - 1;
@@ -718,6 +887,10 @@
     function goTo(n) {
       page = Math.max(0, Math.min(n, manifest.pages - 1));
       zoom = 1; panX = panY = 0;
+      // Arriving on a page in guided view: enter at the first panel going
+      // forward, the LAST panel coming backward (finish the page in order).
+      guidedIdx = guidedArrive === -1 ? Math.max(0, panelsFor(page).length - 1) : 0;
+      guidedArrive = 0;
       if (settings.mode === 'webtoon') scrollWebtoonTo(page);
       else render();
       queueProgress();
@@ -752,7 +925,8 @@
         case 'f': toggleFullscreen(); break;
         case 'd': setMode(settings.mode === 'double' ? 'single' : 'double'); saveSeriesPrefs(); break;
         case 'w': setMode(settings.mode === 'webtoon' ? 'single' : 'webtoon'); saveSeriesPrefs(); break;
-        case 'm': settings.rtl = !settings.rtl; saveSeriesPrefs(); refreshButtons(); render(); break;
+        case 'm': settings.rtl = !settings.rtl; saveSeriesPrefs(); refreshButtons(); panelMap = null; if (guided) fetchPanels(true); render(); break;
+        case 'g': toggleGuided(); break;
         case 'b': toggleBookmark(); break;
         case 'r': rotatePage(); break;
         case 's': toggleAutoScroll(); break;
@@ -1393,10 +1567,808 @@
       }
     }
 
+    // ---------- panel studio ----------
+    // Full-issue panel layout editor, opened from an issue's actions. Every
+    // page in one place: a thumbnail rail on the left, the selected page as
+    // an editable layout on the right — drag corners (slanted panels are
+    // quads), drag panels, add/delete/reorder, revert a page to automatic.
+    // Edits stage locally and "Save all" commits them per page; layouts are
+    // per-FILE overrides that beat any detector and survive model upgrades.
+    // Visibility follows the live session permission (api.can re-evaluates on
+    // every render — works in open mode, after late logins, and for '*'
+    // grants). The server routes stay the authoritative check.
+    const canEditPanels = () => (api.can ? api.can('reader.panels.edit') : false);
+
+    const psR4 = (n) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000;
+    const psToQuad = (p) => (p.poly && p.poly.length >= 3)
+      ? p.poly.map((pt) => [pt[0], pt[1]])
+      : [[p.x, p.y], [p.x + p.w, p.y], [p.x + p.w, p.y + p.h], [p.x, p.y + p.h]];
+    function psToPanel(q) {
+      const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      const out = { x: psR4(x), y: psR4(y), w: psR4(Math.max(...xs) - x), h: psR4(Math.max(...ys) - y) };
+      const isRect = q.length === 4
+        && Math.abs(q[0][1] - q[1][1]) < 0.004 && Math.abs(q[2][1] - q[3][1]) < 0.004
+        && Math.abs(q[0][0] - q[3][0]) < 0.004 && Math.abs(q[1][0] - q[2][0]) < 0.004;
+      if (!isRect) out.poly = q.map((p) => [psR4(p[0]), psR4(p[1])]);
+      return out;
+    }
+
+    async function openPanelStudio(issue) {
+      const id = issue.cv_issue_id;
+      const label = `${issue.series_title || issue.series || ''} #${issue.issue_number || ''}`.trim() || `Issue ${id}`;
+      const root = document.createElement('div');
+      root.className = 'pstudio';
+      root.innerHTML = `
+        <div class="pstudio__head">
+          <strong>Panel layout — ${label.replace(/[<>&]/g, '')}</strong>
+          <span class="pstudio__status"></span>
+          <span style="flex:1"></span>
+          <button class="pstudio__btn ps-redetect" title="Discard cached detection and run the current model again">Re-detect</button>
+          <button class="pstudio__btn ps-saveall" disabled>Save all</button>
+          <button class="pstudio__btn ps-close">Close</button>
+        </div>
+        <div class="pstudio__body">
+          <div class="pstudio__side">
+            <div class="pstudio__chips">
+              <button data-f="all" class="is-on">All</button>
+              <button data-f="none">No layout</button>
+              <button data-f="edited">Edited</button>
+              <button data-f="unreviewed">Unreviewed</button>
+            </div>
+            <div class="pstudio__rail"></div>
+          </div>
+          <div class="pstudio__main">
+            <div class="pstudio__canvas"><div class="pstudio__zoombox"><img class="pstudio__img" draggable="false"><div class="pstudio__edit"></div></div></div>
+            <div class="pstudio__tools">
+              <button class="pstudio__btn" data-act="add" title="Add a panel (or drag on empty page area to draw one)">Add</button>
+              <button class="pstudio__btn" data-act="del" title="Delete selected (Del)">Delete</button>
+              <button class="pstudio__btn" data-act="earlier" title="Read earlier">&#9664;</button>
+              <button class="pstudio__btn" data-act="later" title="Read later">&#9654;</button>
+              <button class="pstudio__btn" data-act="order" title="Tap panels in reading order">Set order</button>
+              <button class="pstudio__btn" data-act="snap" title="Snap edges to the drawn borders">Snap</button>
+              <button class="pstudio__btn" data-act="magnet" title="Auto-snap newly drawn panels to borders">Auto-snap</button>
+              <button class="pstudio__btn" data-act="copy" title="Copy this page's layout">Copy</button>
+              <button class="pstudio__btn" data-act="paste" title="Paste the copied layout onto this page">Paste</button>
+              <button class="pstudio__btn" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
+              <button class="pstudio__btn" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+              <button class="pstudio__btn" data-act="preview" title="Play the guided tour of this layout">Preview</button>
+              <button class="pstudio__btn" data-act="review" title="Step through pages — Space confirms each layout">Review</button>
+              <button class="pstudio__btn" data-act="pagemode" title="No panels — read as a full page">Whole page</button>
+              <button class="pstudio__btn" data-act="auto" title="Discard edits, back to automatic detection">Auto</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+      document.body.style.overflow = 'hidden';
+
+      const $s = (sel) => root.querySelector(sel);
+      const status = $s('.pstudio__status');
+      const rail = $s('.pstudio__rail');
+      const chips = $s('.pstudio__chips');
+      const canvasEl = $s('.pstudio__canvas');
+      const imgEl = $s('.pstudio__img');
+      const editEl = $s('.pstudio__edit');
+      const saveBtn = $s('.ps-saveall');
+      const toolsEl = $s('.pstudio__tools');
+      const toolBtn = (act) => toolsEl.querySelector(`[data-act="${act}"]`);
+
+      let pages = [];               // [{page, panels, edited}]
+      let cur = 0;
+      const staged = new Map();     // page → [{pts, free}] uncommitted
+      const reverted = new Set();   // pages queued for delete-override
+      const history = new Map();    // page → {undo: [], redo: []}
+      let sel = -1, drag = null, clip = null;
+      let railFilter = 'all';
+      let orderMode = false, orderSeq = [];
+      let previewTimer = null, previewIdx = -1;
+      let zoomZ = 1, baseW = 0;
+      let grayCache = null;         // snap workspace for the current page
+      let lastTap = { t: 0, panel: -1 };
+      let polyDraft = null;         // {pts, cursor} — click-placed polygon in progress
+      let autoSnap = localStorage.getItem('pstudioAutoSnap') !== '0'; // magnet for new panels
+      let reviewMode = false;       // Space = confirm layout + advance
+      const reviewedLocal = new Set(); // page numbers confirmed (mirrors server)
+
+      const deep = (items) => items.map((it) => ({ pts: it.pts.map((p) => [...p]), free: it.free }));
+      const dirty = () => staged.size + reverted.size > 0;
+      const syncSave = () => { saveBtn.disabled = !dirty(); saveBtn.textContent = dirty() ? `Save all (${staged.size + reverted.size})` : 'Save all'; };
+      const hist = () => { if (!history.has(cur)) history.set(cur, { undo: [], redo: [] }); return history.get(cur); };
+
+      function quadsFor(n) {
+        if (staged.has(n)) return staged.get(n);
+        const p = pages.find((x) => x.page === n);
+        return (p?.panels || []).map((pp) => ({ pts: psToQuad(pp), free: !!(pp.poly && pp.poly.length >= 3) }));
+      }
+
+      // ---- history: every committed change snapshots the page's prior state
+      const captureState = () => ({ items: staged.has(cur) ? deep(staged.get(cur)) : null, rev: reverted.has(cur) });
+      function applyState(s) {
+        if (s.items) staged.set(cur, deep(s.items)); else staged.delete(cur);
+        if (s.rev) reverted.add(cur); else reverted.delete(cur);
+        sel = -1;
+        syncSave(); buildRail(); renderEdit(); syncTools();
+      }
+      function pushHistory(pre) {
+        const h = hist();
+        h.undo.push(pre);
+        if (h.undo.length > 50) h.undo.shift();
+        h.redo.length = 0;
+        syncTools();
+      }
+      function undo() { const h = hist(); if (!h.undo.length) return; h.redo.push(captureState()); applyState(h.undo.pop()); }
+      function redo() { const h = hist(); if (!h.redo.length) return; h.undo.push(captureState()); applyState(h.redo.pop()); }
+
+      function mutate(fn, commit = true) {
+        const pre = commit ? captureState() : null;
+        const items = deep(quadsFor(cur));
+        fn(items);
+        if (commit) pushHistory(pre);
+        staged.set(cur, items);
+        reverted.delete(cur);
+        syncSave(); buildRail(); renderEdit(); syncTools();
+      }
+
+      async function loadPanels() {
+        status.textContent = 'Loading layout…';
+        for (;;) {
+          const r = await fetch(`/api/reader/issue/${id}/panels`);
+          if (!r.ok) { status.textContent = 'No file for this issue'; return false; }
+          const j = await r.json();
+          if (j.ready) { pages = j.pages; setHint(); return true; }
+          status.textContent = j.total ? `Detecting panels… ${j.done ?? 0}/${j.total}` : 'Detecting panels…';
+          await new Promise((ok) => setTimeout(ok, 1500));
+        }
+      }
+      const setHint = (msg) => {
+        if (reviewMode && !msg) return reviewProgress();
+        status.textContent = msg || 'Drag corners to resize · double-tap unlocks corners · drag empty space to draw a panel';
+      };
+
+      // ---- rail + filter chips
+      const isReviewed = (p) => reviewedLocal.has(p.page) || !!p.reviewed;
+      function railPages() {
+        if (railFilter === 'none') return pages.filter((p) => (staged.has(p.page) ? staged.get(p.page).length : (p.panels || []).length) === 0);
+        if (railFilter === 'edited') return pages.filter((p) => p.edited || staged.has(p.page) || reverted.has(p.page));
+        if (railFilter === 'unreviewed') return pages.filter((p) => !isReviewed(p));
+        return pages;
+      }
+      function buildRail() {
+        const list = railPages();
+        rail.innerHTML = list.map((p) => {
+          const q = staged.has(p.page) ? staged.get(p.page) : null;
+          const count = q ? q.length : (p.panels || []).length;
+          const mark = staged.has(p.page) || reverted.has(p.page) ? ' pstudio__thumb--dirty'
+            : (p.edited ? ' pstudio__thumb--edited' : '');
+          const tick = isReviewed(p) ? '<i class="pstudio__tick">&#10003;</i>' : '';
+          return `<button class="pstudio__thumb${p.page === cur ? ' is-cur' : ''}${mark}" data-page="${p.page}">
+            <img loading="lazy" src="/api/reader/issue/${id}/page/${p.page}?w=140" alt="">
+            <span>${p.page + 1}</span><em>${count ? count + 'p' : 'page'}</em>${tick}</button>`;
+        }).join('') || '<div class="pstudio__railempty">No pages match</div>';
+        const counts = {
+          all: pages.length,
+          none: pages.filter((p) => (staged.has(p.page) ? staged.get(p.page).length : (p.panels || []).length) === 0).length,
+          edited: pages.filter((p) => p.edited || staged.has(p.page) || reverted.has(p.page)).length,
+          unreviewed: pages.filter((p) => !isReviewed(p)).length,
+        };
+        chips.querySelectorAll('button').forEach((b) => {
+          b.classList.toggle('is-on', b.dataset.f === railFilter);
+          b.textContent = `${{ all: 'All', none: 'No layout', edited: 'Edited', unreviewed: 'Unreviewed' }[b.dataset.f]} (${counts[b.dataset.f]})`;
+        });
+      }
+      chips.addEventListener('click', (e) => {
+        const f = e.target?.dataset?.f;
+        if (f) { railFilter = f; buildRail(); }
+      });
+      rail.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-page]');
+        if (b) showPage(Number(b.dataset.page));
+      });
+
+      function showPage(n) {
+        stopPreview();
+        exitOrderMode();
+        polyDraft = null;
+        cur = n; sel = -1; grayCache = null;
+        zoomZ = 1;
+        imgEl.style.width = ''; imgEl.style.maxWidth = ''; imgEl.style.maxHeight = '';
+        imgEl.src = `/api/reader/issue/${id}/page/${n}?w=1600`;
+        const fit = () => { baseW = imgEl.clientWidth; renderEdit(); };
+        if (imgEl.complete && imgEl.naturalWidth) fit(); else imgEl.onload = fit;
+        buildRail(); syncTools();
+        rail.querySelector('.is-cur')?.scrollIntoView({ block: 'nearest' });
+      }
+
+      // ---- canvas rendering
+      function renderEdit() {
+        const W = imgEl.clientWidth, H = imgEl.clientHeight;
+        if (!W || !H) return;
+        editEl.style.left = `${imgEl.offsetLeft}px`;
+        editEl.style.top = `${imgEl.offsetTop}px`;
+        editEl.style.width = `${W}px`;
+        editEl.style.height = `${H}px`;
+        const items = quadsFor(cur);
+        const parts = items.map((it, i) => {
+          const q = it.pts;
+          const pts = q.map(([x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`).join(' ');
+          const isSel = i === sel && !orderMode && previewIdx < 0;
+          const handles = isSel ? q.map(([x, y], v) =>
+            `<circle class="ed-h" data-panel="${i}" data-vtx="${v}" cx="${(x * W).toFixed(1)}" cy="${(y * H).toFixed(1)}" r="11"/>`).join('') : '';
+          let num = String(i + 1);
+          let cls = '';
+          if (orderMode) {
+            const k = orderSeq.indexOf(i);
+            num = k >= 0 ? String(k + 1) : '·';
+            cls = k >= 0 ? ' is-ordered' : '';
+          }
+          return `<g class="${isSel ? 'is-sel' : ''}${cls}"><polygon class="ed-p${it.free ? ' is-free' : ''}" data-panel="${i}" points="${pts}"/>
+            <text x="${(q[0][0] * W + 10).toFixed(1)}" y="${(q[0][1] * H + 24).toFixed(1)}">${num}</text>${handles}</g>`;
+        });
+        // draw-to-add ghost
+        if (drag?.kind === 'draw' && drag.draft) {
+          const d = drag.draft;
+          const x0 = Math.min(d.x0, d.x1) * W, y0 = Math.min(d.y0, d.y1) * H;
+          const w = Math.abs(d.x1 - d.x0) * W, h = Math.abs(d.y1 - d.y0) * H;
+          parts.push(`<rect class="ed-ghost" x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}"/>`);
+        }
+        // click-placed polygon in progress: placed corners + rubber-band line
+        if (polyDraft) {
+          const placed = polyDraft.pts.map(([x, y]) => `${(x * W).toFixed(1)},${(y * H).toFixed(1)}`);
+          const cursorPt = `${(polyDraft.cursor[0] * W).toFixed(1)},${(polyDraft.cursor[1] * H).toFixed(1)}`;
+          parts.push(`<polyline class="ed-ghostline" points="${[...placed, cursorPt].join(' ')}"/>`);
+          parts.push(...polyDraft.pts.map(([x, y], k) =>
+            `<circle class="ed-draftpt${k === 0 ? ' is-first' : ''}" cx="${(x * W).toFixed(1)}" cy="${(y * H).toFixed(1)}" r="${k === 0 ? 13 : 8}"/>`));
+        }
+        // preview spotlight: dim everything but the toured panel
+        if (previewIdx >= 0 && items[previewIdx]) {
+          const q = items[previewIdx].pts;
+          const hole = q.map(([x, y]) => `${(x * W).toFixed(1)} ${(y * H).toFixed(1)}`).join(' L ');
+          parts.push(`<path class="ed-dim" fill-rule="evenodd" d="M ${-W} ${-H} H ${W * 2} V ${H * 2} H ${-W} Z M ${hole} Z"/>`);
+        }
+        editEl.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${parts.join('')}</svg>`;
+      }
+
+      function syncTools() {
+        const hasSel = sel >= 0;
+        toolBtn('del').disabled = !hasSel;
+        toolBtn('earlier').disabled = !hasSel;
+        toolBtn('later').disabled = !hasSel;
+        toolBtn('paste').disabled = !clip;
+        toolBtn('undo').disabled = !hist().undo.length;
+        toolBtn('redo').disabled = !hist().redo.length;
+        toolBtn('order').classList.toggle('is-on', orderMode);
+        toolBtn('preview').classList.toggle('is-on', previewIdx >= 0);
+        toolBtn('magnet').classList.toggle('is-on', autoSnap);
+        toolBtn('review').classList.toggle('is-on', reviewMode);
+      }
+
+      // ---- pointer interactions: select/move/resize, unlock, draw-to-add
+      editEl.addEventListener('pointerdown', (e) => {
+        if (previewIdx >= 0) { stopPreview(); return; }
+        const t = e.target;
+        if (orderMode) {
+          if (t.classList?.contains('ed-p')) orderTap(+t.dataset.panel);
+          e.preventDefault();
+          return;
+        }
+        // Polygon placement in progress: every click adds a corner; clicking
+        // the first point (or reaching 8 corners) closes the shape.
+        if (polyDraft) {
+          const r = editEl.getBoundingClientRect();
+          const x = psR4((e.clientX - r.left) / r.width), y = psR4((e.clientY - r.top) / r.height);
+          const [fx, fy] = polyDraft.pts[0];
+          const closeEnough = Math.hypot(x - fx, y - fy) < 0.02 && polyDraft.pts.length >= 3;
+          if (closeEnough || polyDraft.pts.length >= 8) closePolyDraft();
+          else { polyDraft.pts.push([x, y]); polyDraft.cursor = [x, y]; renderEdit(); }
+          e.preventDefault();
+          return;
+        }
+        if (t.classList?.contains('ed-h')) {
+          drag = { kind: 'vtx', panel: +t.dataset.panel, vtx: +t.dataset.vtx, pre: captureState(), preJson: JSON.stringify(quadsFor(cur)) };
+        } else if (t.classList?.contains('ed-p')) {
+          const i = +t.dataset.panel;
+          const now = performance.now();
+          if (lastTap.panel === i && now - lastTap.t < 400) {
+            // Double-tap toggles the corner lock: unlock rect → free quad,
+            // relock free quad → its bounding rectangle.
+            lastTap = { t: 0, panel: -1 };
+            sel = i;
+            let unlocked = false;
+            mutate((items) => {
+              const it = items[i];
+              if (!it) return;
+              if (it.free) {
+                const xs = it.pts.map((p) => p[0]), ys = it.pts.map((p) => p[1]);
+                const x0 = Math.min(...xs), x1 = Math.max(...xs);
+                const y0 = Math.min(...ys), y1 = Math.max(...ys);
+                it.pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+                it.free = false;
+              } else {
+                it.free = true;
+                unlocked = true;
+              }
+            });
+            api.toast?.(unlocked ? 'Corners unlocked — drag them independently' : 'Corners locked — panel squared back to a rectangle', 'info');
+            e.preventDefault();
+            return;
+          }
+          lastTap = { t: now, panel: i };
+          sel = i;
+          drag = { kind: 'move', panel: i, lastX: e.clientX, lastY: e.clientY, pre: captureState(), preJson: JSON.stringify(quadsFor(cur)) };
+          renderEdit(); syncTools();
+        } else {
+          // empty page area → draw a new panel
+          const r = editEl.getBoundingClientRect();
+          const x = psR4((e.clientX - r.left) / r.width), y = psR4((e.clientY - r.top) / r.height);
+          drag = { kind: 'draw', draft: { x0: x, y0: y, x1: x, y1: y }, pre: captureState() };
+        }
+        editEl.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+
+      editEl.addEventListener('pointermove', (e) => {
+        if (polyDraft && !drag) {
+          const r = editEl.getBoundingClientRect();
+          polyDraft.cursor = [psR4((e.clientX - r.left) / r.width), psR4((e.clientY - r.top) / r.height)];
+          renderEdit();
+          return;
+        }
+        if (!drag) return;
+        const r = editEl.getBoundingClientRect();
+        const mx = psR4((e.clientX - r.left) / r.width);
+        const my = psR4((e.clientY - r.top) / r.height);
+        if (drag.kind === 'draw') {
+          drag.draft.x1 = mx; drag.draft.y1 = my;
+          renderEdit();
+          e.preventDefault();
+          return;
+        }
+        mutate((items) => {
+          const it = items[drag.panel];
+          if (!it) return;
+          if (drag.kind === 'vtx') {
+            if (it.free) {
+              it.pts[drag.vtx] = [mx, my];
+            } else {
+              const [ax, ay] = it.pts[(drag.vtx + 2) % 4];
+              const x0 = Math.min(ax, mx), x1 = Math.max(ax, mx);
+              const y0 = Math.min(ay, my), y1 = Math.max(ay, my);
+              it.pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+            }
+          } else {
+            const dx = (e.clientX - drag.lastX) / r.width, dy = (e.clientY - drag.lastY) / r.height;
+            drag.lastX = e.clientX; drag.lastY = e.clientY;
+            it.pts = it.pts.map(([x, y]) => [psR4(x + dx), psR4(y + dy)]);
+          }
+        }, false);
+        e.preventDefault();
+      });
+
+      function endDrag() {
+        if (!drag) return;
+        if (drag.kind === 'draw') {
+          const d = drag.draft;
+          const w = Math.abs(d.x1 - d.x0), h = Math.abs(d.y1 - d.y0);
+          drag = null;
+          if (w >= 0.02 && h >= 0.02) {
+            // A real drag → rectangle panel.
+            const x0 = Math.min(d.x0, d.x1), y0 = Math.min(d.y0, d.y1);
+            mutate((items) => {
+              items.push({ pts: [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]], free: false });
+              sel = items.length - 1;
+            });
+            if (autoSnap) snapPanel(sel, true);
+          } else if (w < 0.006 && h < 0.006) {
+            // A plain click → start placing a free polygon corner by corner.
+            sel = -1;
+            polyDraft = { pts: [[d.x0, d.y0]], cursor: [d.x0, d.y0] };
+            status.textContent = 'Placing corners — click to add, click the first point to close, Esc cancels';
+            renderEdit(); syncTools();
+          } else renderEdit();
+          return;
+        }
+        // commit drag to history only if the layout actually changed
+        if (drag.preJson !== JSON.stringify(quadsFor(cur))) pushHistory(drag.pre);
+        drag = null;
+      }
+      editEl.addEventListener('pointerup', endDrag);
+      editEl.addEventListener('pointercancel', endDrag);
+
+      function closePolyDraft() {
+        if (!polyDraft || polyDraft.pts.length < 3) return cancelPolyDraft();
+        const pts = polyDraft.pts.map(([x, y]) => [psR4(x), psR4(y)]);
+        polyDraft = null;
+        mutate((items) => {
+          items.push({ pts, free: true });
+          sel = items.length - 1;
+        });
+        if (autoSnap) snapPanel(sel, true);
+        setHint();
+        api.toast?.('Panel added', 'ok');
+      }
+      function cancelPolyDraft() {
+        polyDraft = null;
+        renderEdit(); setHint();
+      }
+
+      // ---- snap-to-borders: score candidate lines by "dark ink stroke with
+      // gutter just outside" — the line-snap recipe, in canvas ImageData.
+      function buildGray() {
+        if (grayCache?.page === cur) return grayCache;
+        const scale = Math.min(1, 1000 / Math.max(imgEl.naturalWidth, imgEl.naturalHeight));
+        const gw = Math.max(8, Math.round(imgEl.naturalWidth * scale));
+        const gh = Math.max(8, Math.round(imgEl.naturalHeight * scale));
+        const c = document.createElement('canvas');
+        c.width = gw; c.height = gh;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(imgEl, 0, 0, gw, gh);
+        const d = ctx.getImageData(0, 0, gw, gh).data;
+        const g = new Uint8Array(gw * gh);
+        for (let i = 0; i < gw * gh; i++) g[i] = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) | 0;
+        const band = Math.max(2, Math.round(Math.min(gw, gh) * 0.02));
+        const samples = [];
+        for (let y = 0; y < gh; y += 2) {
+          for (let x = 0; x < gw; x += 2) {
+            if (x < band || x >= gw - band || y < band || y >= gh - band) samples.push(g[y * gw + x]);
+          }
+        }
+        samples.sort((a, b) => a - b);
+        grayCache = { page: cur, g, gw, gh, bg: samples[Math.floor(samples.length / 2)] ?? 255 };
+        return grayCache;
+      }
+
+      function lineScore(gc, q1, q2, out) {
+        const N = 36;
+        let ink = 0, gut = 0, m = 0;
+        const offs = Math.max(3, 0.008 * Math.max(gc.gw, gc.gh));
+        for (let k = 0; k < N; k++) {
+          const t = 0.08 + (0.84 * k) / (N - 1);
+          const x = q1[0] + t * (q2[0] - q1[0]), y = q1[1] + t * (q2[1] - q1[1]);
+          const xi = x | 0, yi = y | 0;
+          if (xi < 0 || yi < 0 || xi >= gc.gw || yi >= gc.gh) continue;
+          m++;
+          if (gc.g[yi * gc.gw + xi] < 135) ink++;
+          const ox = (x + out[0] * offs) | 0, oy = (y + out[1] * offs) | 0;
+          if (ox < 0 || oy < 0 || ox >= gc.gw || oy >= gc.gh) gut++; // page edge counts as gutter
+          else if (Math.abs(gc.g[oy * gc.gw + ox] - gc.bg) < 35) gut++;
+        }
+        if (m < N * 0.5) return null;
+        return { ink: ink / m, gut: gut / m };
+      }
+
+      function snapPanel(i, silent) {
+        const items = quadsFor(cur);
+        const it = items[i];
+        if (!it || !imgEl.naturalWidth) return;
+        const gc = buildGray();
+        const px = (p) => [p[0] * gc.gw, p[1] * gc.gh];
+        const corr = 0.025 * Math.max(gc.gw, gc.gh);
+        const step = Math.max(1, corr / 14);
+        const cx = it.pts.reduce((s, p) => s + p[0], 0) / it.pts.length;
+        const cy = it.pts.reduce((s, p) => s + p[1], 0) / it.pts.length;
+
+        function snapLine(p1, p2, angles) {
+          const P1 = px(p1), P2 = px(p2);
+          const mid = [(P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2];
+          const dx = P2[0] - P1[0], dy = P2[1] - P1[1];
+          const len = Math.hypot(dx, dy) || 1;
+          let n = [-dy / len, dx / len];
+          const c = px([cx, cy]);
+          if (n[0] * (c[0] - mid[0]) + n[1] * (c[1] - mid[1]) > 0) n = [-n[0], -n[1]];
+          let best = null, bestScore = 0;
+          for (const a of angles) {
+            const ca = Math.cos(a), sa = Math.sin(a);
+            const rot = (P) => [mid[0] + (P[0] - mid[0]) * ca - (P[1] - mid[1]) * sa, mid[1] + (P[0] - mid[0]) * sa + (P[1] - mid[1]) * ca];
+            const R1 = rot(P1), R2 = rot(P2);
+            for (let off = -corr; off <= corr; off += step) {
+              const q1 = [R1[0] + n[0] * off, R1[1] + n[1] * off];
+              const q2 = [R2[0] + n[0] * off, R2[1] + n[1] * off];
+              const s = lineScore(gc, q1, q2, n);
+              if (!s || s.ink < 0.45 || s.gut < 0.5) continue;
+              const score = s.ink + s.gut - (Math.abs(off) / corr) * 0.2 - Math.abs(a) * 1.5;
+              if (score > bestScore) { bestScore = score; best = [q1, q2]; }
+            }
+          }
+          return best; // gray-px line or null
+        }
+
+        const lineOf = (q1, q2) => {
+          const d = [q2[0] - q1[0], q2[1] - q1[1]];
+          const nl = Math.hypot(d[0], d[1]) || 1;
+          const n = [-d[1] / nl, d[0] / nl];
+          return { n, c: n[0] * q1[0] + n[1] * q1[1] };
+        };
+        const meet = (l1, l2) => {
+          const det = l1.n[0] * l2.n[1] - l1.n[1] * l2.n[0];
+          if (Math.abs(det) < 1e-9) return null;
+          return [(l1.c * l2.n[1] - l2.c * l1.n[1]) / det, (l1.n[0] * l2.c - l2.n[0] * l1.c) / det];
+        };
+
+        const nPts = it.pts.length;
+        const angles = it.free ? [-0.06, -0.03, 0, 0.03, 0.06] : [0];
+        const lines = [];
+        for (let e = 0; e < nPts; e++) {
+          const snapped = snapLine(it.pts[e], it.pts[(e + 1) % nPts], angles);
+          lines.push(snapped ? lineOf(...snapped) : lineOf(...[px(it.pts[e]), px(it.pts[(e + 1) % nPts])]));
+        }
+        const newPts = [];
+        for (let v = 0; v < nPts; v++) {
+          const p = meet(lines[(v - 1 + nPts) % nPts], lines[v]) || px(it.pts[v]);
+          newPts.push([psR4(Math.min(Math.max(p[0] / gc.gw, 0), 1)), psR4(Math.min(Math.max(p[1] / gc.gh, 0), 1))]);
+        }
+        mutate((arr) => {
+          if (!arr[i]) return;
+          arr[i].pts = arr[i].free ? newPts : (() => {
+            const xs = newPts.map((p) => p[0]), ys = newPts.map((p) => p[1]);
+            const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+            return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+          })();
+        });
+        if (!silent) api.toast?.('Snapped to borders', 'ok');
+      }
+
+      // ---- tap-to-order
+      function exitOrderMode() { if (orderMode) { orderMode = false; orderSeq = []; renderEdit(); syncTools(); setHint(); } }
+      function orderTap(i) {
+        if (orderSeq.includes(i)) return;
+        orderSeq.push(i);
+        const total = quadsFor(cur).length;
+        renderEdit();
+        if (orderSeq.length >= total) {
+          const seq = [...orderSeq];
+          orderMode = false; orderSeq = [];
+          mutate((items) => {
+            const copy = seq.map((idx) => items[idx]);
+            items.splice(0, items.length, ...copy);
+          });
+          sel = -1;
+          setHint();
+          api.toast?.('Reading order updated', 'ok');
+        } else status.textContent = `Tap panels in reading order — ${orderSeq.length}/${total}`;
+      }
+
+      // ---- review mode: step through pages, Space = "layout is right, next"
+      function reviewProgress() {
+        const done = pages.filter(isReviewed).length;
+        status.textContent = `Review — ${done}/${pages.length} confirmed · Space confirms, arrows skip, Esc exits`;
+      }
+      function nextUnreviewed(fromPage) {
+        const start = pages.findIndex((p) => p.page === fromPage);
+        for (let k = 1; k <= pages.length; k++) {
+          const p = pages[(start + k) % pages.length];
+          if (!isReviewed(p)) return p.page;
+        }
+        return null;
+      }
+      function enterReview() {
+        reviewMode = true;
+        exitOrderMode(); stopPreview();
+        const first = !isReviewed(pages.find((p) => p.page === cur) || {}) ? cur : nextUnreviewed(cur);
+        if (first == null) { reviewMode = false; api.toast?.('Every page is already reviewed', 'ok'); return; }
+        if (first !== cur) showPage(first);
+        reviewMode = true; // showPage cleared transient modes, reassert
+        reviewProgress(); syncTools();
+      }
+      function exitReview(done) {
+        reviewMode = false;
+        setHint(); syncTools();
+        if (done) api.toast?.('Issue fully reviewed', 'ok');
+      }
+      async function confirmCurrent() {
+        const p = pages.find((x) => x.page === cur);
+        if (p) { reviewedLocal.add(cur); p.reviewed = true; }
+        buildRail();
+        fetch(`/api/reader/issue/${id}/panels/reviewed/${cur}`, { method: 'PUT' }).catch(() => {});
+        const nxt = nextUnreviewed(cur);
+        if (nxt == null) exitReview(true);
+        else { showPage(nxt); reviewMode = true; reviewProgress(); }
+      }
+
+      // ---- preview: play the guided tour of the staged layout
+      function stopPreview() {
+        if (previewTimer) clearInterval(previewTimer);
+        previewTimer = null; previewIdx = -1;
+        renderEdit(); syncTools(); setHint();
+      }
+      function startPreview() {
+        const items = quadsFor(cur);
+        if (!items.length) { api.toast?.('This page reads as a full page', 'info'); return; }
+        exitOrderMode();
+        previewIdx = 0;
+        status.textContent = 'Previewing reading order — click to stop';
+        renderEdit(); syncTools();
+        previewTimer = setInterval(() => {
+          previewIdx++;
+          if (previewIdx >= quadsFor(cur).length) stopPreview();
+          else renderEdit();
+        }, 900);
+      }
+
+      // ---- toolbar
+      toolsEl.addEventListener('click', (e) => {
+        const act = e.target?.dataset?.act;
+        if (!act) return;
+        if (act !== 'preview') stopPreview();
+        if (act === 'add') mutate((q) => { q.push({ pts: [[0.3, 0.3], [0.7, 0.3], [0.7, 0.7], [0.3, 0.7]], free: false }); sel = q.length - 1; });
+        else if (act === 'del') { if (sel >= 0) mutate((q) => { q.splice(sel, 1); sel = Math.min(sel, q.length - 1); }); }
+        else if (act === 'earlier' || act === 'later') {
+          const d = act === 'earlier' ? -1 : 1;
+          if (sel >= 0) mutate((q) => { const ni = sel + d; if (ni >= 0 && ni < q.length) { [q[sel], q[ni]] = [q[ni], q[sel]]; sel = ni; } });
+        } else if (act === 'order') { if (orderMode) exitOrderMode(); else { orderMode = true; orderSeq = []; sel = -1; status.textContent = `Tap panels in reading order — 0/${quadsFor(cur).length}`; renderEdit(); syncTools(); } }
+        else if (act === 'snap') { if (sel >= 0) snapPanel(sel); else { quadsFor(cur).forEach((_, i) => snapPanel(i, true)); api.toast?.('Snapped all panels', 'ok'); } }
+        else if (act === 'magnet') {
+          autoSnap = !autoSnap;
+          localStorage.setItem('pstudioAutoSnap', autoSnap ? '1' : '0');
+          syncTools();
+          api.toast?.(autoSnap ? 'Auto-snap on — new panels magnetize to borders' : 'Auto-snap off — panels stay exactly where you draw them', 'info');
+        }
+        else if (act === 'copy') { clip = deep(quadsFor(cur)); syncTools(); api.toast?.('Layout copied', 'ok'); }
+        else if (act === 'paste') { if (clip) { mutate((q) => { q.splice(0, q.length, ...deep(clip)); }); sel = -1; } }
+        else if (act === 'undo') undo();
+        else if (act === 'redo') redo();
+        else if (act === 'preview') { if (previewIdx >= 0) stopPreview(); else startPreview(); }
+        else if (act === 'review') { if (reviewMode) exitReview(false); else enterReview(); }
+        else if (act === 'pagemode') { sel = -1; mutate((q) => { q.length = 0; }); }
+        else if (act === 'auto') {
+          pushHistory(captureState());
+          staged.delete(cur);
+          reverted.add(cur);
+          sel = -1;
+          syncSave(); buildRail(); renderEdit(); syncTools();
+        }
+      });
+
+      // ---- zoom (wheel / trackpad) around the cursor
+      canvasEl.addEventListener('wheel', (e) => {
+        if (!imgEl.naturalWidth) return;
+        e.preventDefault();
+        const zOld = zoomZ;
+        zoomZ = Math.min(5, Math.max(1, zoomZ * (e.deltaY < 0 ? 1.18 : 1 / 1.18)));
+        if (zoomZ === zOld) return;
+        if (zoomZ === 1) {
+          imgEl.style.width = ''; imgEl.style.maxWidth = ''; imgEl.style.maxHeight = '';
+        } else {
+          imgEl.style.maxWidth = 'none'; imgEl.style.maxHeight = 'none';
+          imgEl.style.width = `${Math.round(baseW * zoomZ)}px`;
+        }
+        const r = canvasEl.getBoundingClientRect();
+        const px = e.clientX - r.left + canvasEl.scrollLeft;
+        const py = e.clientY - r.top + canvasEl.scrollTop;
+        renderEdit();
+        const ratio = zoomZ / zOld;
+        canvasEl.scrollLeft = px * ratio - (e.clientX - r.left);
+        canvasEl.scrollTop = py * ratio - (e.clientY - r.top);
+      }, { passive: false });
+
+      // ---- save / close / keys
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true;
+        status.textContent = 'Saving…';
+        let failed = 0;
+        for (const [n, items] of staged) {
+          try {
+            const panels = items.map((it) => psToPanel(it.pts));
+            const r = await fetch(`/api/reader/issue/${id}/panels/page/${n}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ panels }),
+            });
+            if (!r.ok) throw new Error();
+            const p = pages.find((x) => x.page === n);
+            if (p) { p.panels = panels; p.edited = true; p.reviewed = true; reviewedLocal.add(n); }
+          } catch { failed++; }
+        }
+        for (const n of reverted) {
+          try {
+            await fetch(`/api/reader/issue/${id}/panels/page/${n}`, { method: 'DELETE' });
+            const p = pages.find((x) => x.page === n);
+            if (p) p.edited = false;
+          } catch { failed++; }
+        }
+        if (!failed) { staged.clear(); reverted.clear(); }
+        status.textContent = failed ? `${failed} page(s) failed to save` : 'Saved';
+        try {
+          const r = await fetch(`/api/reader/issue/${id}/panels`);
+          const j = await r.json();
+          if (j.ready) pages = j.pages;
+        } catch { /* rail badges catch up next open */ }
+        syncSave(); buildRail(); renderEdit(); syncTools();
+        api.toast?.(failed ? 'Some panel edits failed to save' : 'Panel layouts saved', failed ? 'error' : 'ok');
+      };
+
+      function close() {
+        if (dirty() && !window.confirm('Discard unsaved panel edits?')) return;
+        stopPreview();
+        document.removeEventListener('keydown', onStudioKey, true);
+        document.body.style.overflow = '';
+        root.remove();
+      }
+      $s('.ps-close').onclick = close;
+
+      $s('.ps-redetect').onclick = async () => {
+        const wipe = dirty() || pages.some((p) => p.edited);
+        const clearEdits = wipe && window.confirm('Also discard your saved panel edits and reviews for this issue?\n\nOK = wipe everything and re-detect from scratch.\nCancel = re-detect but keep your edits (edits still override the model).');
+        if (!window.confirm('Re-detect all pages with the current model? Cached detection will be recomputed on the next load.')) return;
+        staged.clear(); reverted.clear();
+        status.textContent = 'Re-detecting…';
+        try {
+          await fetch(`/api/reader/issue/${id}/panels/redetect${clearEdits ? '?edits=clear' : ''}`, { method: 'POST' });
+          if (clearEdits) { reviewedLocal.clear(); pages.forEach((p) => { p.edited = false; p.reviewed = false; }); }
+          if (await loadPanels()) { buildRail(); showPage(pages[0]?.page ?? 0); }
+          api.toast?.('Re-detected with the current model', 'ok');
+        } catch { status.textContent = 'Re-detect failed'; }
+      };
+
+      function onStudioKey(e) {
+        const mod = e.ctrlKey || e.metaKey;
+        if (e.key === 'Escape') {
+          if (polyDraft) cancelPolyDraft();
+          else if (previewIdx >= 0) stopPreview();
+          else if (orderMode) exitOrderMode();
+          else if (reviewMode) exitReview(false);
+          else close();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (e.key === ' ' && reviewMode && !polyDraft) {
+          confirmCurrent();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (e.key === 'Enter' && polyDraft) {
+          closePolyDraft();
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (mod && e.key.toLowerCase() === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); e.stopPropagation(); return; }
+        if (mod && e.key.toLowerCase() === 'y') { redo(); e.preventDefault(); e.stopPropagation(); return; }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && sel >= 0) {
+          mutate((q) => { q.splice(sel, 1); sel = Math.min(sel, q.length - 1); });
+          e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (e.key.startsWith('Arrow')) {
+          if (sel >= 0) {
+            // nudge selected panel (Shift = resize width/height for rects)
+            const stepN = 0.005;
+            const dx = e.key === 'ArrowLeft' ? -stepN : e.key === 'ArrowRight' ? stepN : 0;
+            const dy = e.key === 'ArrowUp' ? -stepN : e.key === 'ArrowDown' ? stepN : 0;
+            mutate((items) => {
+              const it = items[sel];
+              if (!it) return;
+              if (e.shiftKey && !it.free) {
+                const [[x0, y0]] = it.pts;
+                const x1 = Math.max(x0 + 0.02, it.pts[1][0] + dx);
+                const y1 = Math.max(y0 + 0.02, it.pts[2][1] + dy);
+                it.pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+              } else {
+                it.pts = it.pts.map(([x, y]) => [psR4(x + dx), psR4(y + dy)]);
+              }
+            });
+          } else {
+            const i = pages.findIndex((p) => p.page === cur);
+            if (e.key === 'ArrowRight' && i < pages.length - 1) showPage(pages[i + 1].page);
+            if (e.key === 'ArrowLeft' && i > 0) showPage(pages[i - 1].page);
+          }
+          e.preventDefault(); e.stopPropagation();
+        }
+      }
+      document.addEventListener('keydown', onStudioKey, true);
+      window.addEventListener('resize', () => { if (root.isConnected && zoomZ === 1) { baseW = imgEl.clientWidth; renderEdit(); } });
+
+      if (await loadPanels()) { buildRail(); showPage(pages[0]?.page ?? 0); }
+    }
+
     // ---------- registration with the app ----------
     // Host icon set as inline SVG (matches the core UI + renders the same on
     // every device). Falls back to a glyph if an older host lacks api.icon.
     const hicon = (name, opts, fb = '') => (api.icon ? (api.icon(name, opts) || fb) : fb);
+
+    // Panel-layout editing from the issue row — only for users the server
+    // says may edit (reader.panels.edit permission).
+    api.registerIssueAction?.({
+      id: 'reader-panel-studio',
+      icon: () => hicon('layout', null, '▦'),
+      title: () => 'Edit panel layout',
+      when: (i) => canEditPanels() && !!i.owned && !i.corrupt && !!i.cv_issue_id,
+      run: (i) => openPanelStudio(i),
+    });
     api.registerIssueAction?.({
       id: 'reader',
       icon: (i) => {
@@ -1527,7 +2499,11 @@
       const wrap = document.createElement('div');
       wrap.innerHTML =
         '<label class="field field--check"><input id="set-readerFileCovers" type="checkbox"><span>Use the file\'s first page as an owned issue\'s cover (off = always ComicVine art)</span></label>' +
-        '<p class="modal__note">Applies to the issue grid on a series page. Your file\'s page may differ from ComicVine\'s art when it\'s a variant cover or a different printing.</p>';
+        '<p class="modal__note">Applies to the issue grid on a series page. Your file\'s page may differ from ComicVine\'s art when it\'s a variant cover or a different printing.</p>' +
+        '<label class="field field--check"><input id="set-readerPanelMl" type="checkbox"><span>Use the ML panel detector for guided view (off = built-in detection)</span></label>' +
+        '<p class="modal__note">Only applies when a panel model is installed on the server. Flipping this re-detects each issue\'s panel layout once on next open.</p>' +
+        '<label class="field field--check"><input id="set-readerPanelShare" type="checkbox"><span>Share panel layouts with the community cache</span></label>' +
+        '<p class="modal__note">When on, panel layouts are looked up from a shared cache before detecting (instant guided view for pages others have covered), and your detections and hand-corrections are contributed back. Only panel rectangles and a page-content hash are sent, never image data or filenames.</p>';
       libSlot.appendChild(wrap);
     }
 

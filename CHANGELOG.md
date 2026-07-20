@@ -8,6 +8,54 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-07-20
+
+### Added
+- **Shared panel cache** (Settings → Library, on by default): panel
+  layouts are looked up from a community cache before detecting — so a page
+  detected or hand-corrected on any server gives you instant guided view —
+  and your own detections and corrections are contributed back (only
+  ML-detected layouts and hand-corrections are shared — the built-in
+  detector's output stays local). Only panel
+  rectangles and a hash of the page's image bytes are sent; never image data
+  or filenames. Hand-corrections outrank model output everywhere; model
+  layouts are only shared once two servers independently corroborate them.
+  Turn the toggle off to opt out entirely (detection then runs locally only).
+  Confirming a page in the studio's review mode also counts as a vote of
+  confidence on the shared layout (retracting the review retracts the vote);
+  community layouts that collect enough rejections stop being served.
+- **Panel studio**: users with the new `reader.panels.edit` permission
+  (admin tier by default) get an "Edit panel layout" action on issue rows
+  that opens a full-issue editor — a page-thumbnail rail beside an editable
+  layout view. Drag corners (slanted panels supported) or whole panels,
+  add/delete panels, reorder the reading sequence, force a page to read
+  whole, or revert pages to automatic detection; staged edits across any
+  number of pages commit with one Save. Corrections are saved per file,
+  apply to everyone on the server, beat any detector's output, and survive
+  model upgrades.
+- **Guided panel view**: read a page panel by panel — the reader detects the
+  panel layout server-side (computed once per issue, cached) and the `g` key
+  or the new toolbar button steps through panels with an animated camera,
+  and a spotlight dims everything outside the current panel. While an issue's
+  layout is being detected the reader shows live page-by-page progress.
+  Right-to-left series tour panels in manga order. Pages without a confident
+  layout stay whole pages.
+- **ML panel detection downloads itself**: when the ML toggle is on and no
+  model is installed, the reader fetches the current panel model from the
+  BackIssue CDN on startup (verified by checksum before it's ever loaded)
+  and activates it without a restart. A model you placed by hand is never
+  replaced; a custom `readerPanelModel` path disables auto-management.
+- **ML panel detection** (optional): drop a panel-detection model at
+  `<data dir>/models/panels.onnx` (or set `readerPanelModel` to its path) and
+  panel layouts come from a neural detector that handles black gutters,
+  borderless cartoon panels, and low-contrast layouts the built-in detector
+  can't — in testing it produced guided layouts on 91% of pages vs 34% for
+  the classical detector. Without the model (or the optional
+  `onnxruntime-node` dependency) the classical detector keeps working
+  unchanged, and a Settings → Library toggle switches between the ML and
+  built-in detectors at any time. Turning the model on or off recomputes
+  each issue's layout once.
+
 ## [1.5.1] — 2026-07-16
 
 ### Added
