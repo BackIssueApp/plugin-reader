@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-20
+
 ### Fixed
 - **Review mode + unsaved edits**: pressing Space on a page with pending panel
   edits now saves that page first (which marks it reviewed and shares the
