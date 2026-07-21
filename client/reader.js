@@ -1594,7 +1594,7 @@
       return out;
     }
 
-    async function openPanelStudio(issue) {
+    async function openPanelStudio(issue, targetPage) {
       const id = issue.cv_issue_id;
       const label = `${issue.series_title || issue.series || ''} #${issue.issue_number || ''}`.trim() || `Issue ${id}`;
       const root = document.createElement('div');
@@ -1604,6 +1604,7 @@
           <strong>Panel layout — ${label.replace(/[<>&]/g, '')}</strong>
           <span class="pstudio__status"></span>
           <span style="flex:1"></span>
+          <button class="pstudio__btn ps-db" title="Browse every panel layout stored in this server's database">Database</button>
           <button class="pstudio__btn ps-redetect" title="Discard cached detection and run the current model again">Re-detect</button>
           <button class="pstudio__btn ps-saveall" disabled>Save all</button>
           <button class="pstudio__btn ps-close">Close</button>
@@ -2155,6 +2156,48 @@
         if (done) api.toast?.('Issue fully reviewed', 'ok');
       }
       async function confirmCurrent() {
+        // Space on a page with pending edits means "MY layout is right" —
+        // commit it first (a saved human layout auto-marks reviewed and
+        // outranks model consensus; the plain review vote below would
+        // endorse the OLD layout, the one being replaced).
+        if (staged.has(cur)) {
+          try {
+            const panels = staged.get(cur).map((it) => psToPanel(it.pts));
+            const r = await fetch(`/api/reader/issue/${id}/panels/page/${cur}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ panels }),
+            });
+            if (!r.ok) throw new Error();
+            const p = pages.find((x) => x.page === cur);
+            if (p) { p.panels = panels; p.edited = true; p.reviewed = true; }
+            staged.delete(cur);
+            reviewedLocal.add(cur);
+            buildRail(); syncSave(); reviewProgress();
+          } catch {
+            api.toast?.('Could not save this page — not marked reviewed', 'error');
+            return;
+          }
+          const nxt = nextUnreviewed(cur);
+          if (nxt == null) exitReview(true);
+          else { showPage(nxt); reviewMode = true; reviewProgress(); }
+          return;
+        }
+        if (reverted.has(cur)) {
+          // Pending revert: apply it, then the normal confirm endorses the
+          // detector's layout that is now actually live.
+          try {
+            const r = await fetch(`/api/reader/issue/${id}/panels/page/${cur}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error();
+            const p = pages.find((x) => x.page === cur);
+            if (p) p.edited = false;
+            reverted.delete(cur);
+            syncSave();
+          } catch {
+            api.toast?.('Could not revert this page — not marked reviewed', 'error');
+            return;
+          }
+        }
         const p = pages.find((x) => x.page === cur);
         if (p) { reviewedLocal.add(cur); p.reviewed = true; }
         buildRail();
@@ -2240,6 +2283,107 @@
         canvasEl.scrollTop = py * ratio - (e.clientY - r.top);
       }, { passive: false });
 
+      // ---- database browser: every stored page layout on this server ----
+      // Read-only view over the layout tables (GET /api/reader/panels/db):
+      // filter chips with live counts, text search, and paged rows. Clicking
+      // a row jumps to that page — reopening the studio on the right issue
+      // when the row belongs to a different one.
+      let dbEl = null;
+      const DB_FILTERS = [['all', 'All'], ['ml', 'ML'], ['classical', 'Built-in'],
+        ['edited', 'Edited'], ['reviewed', 'Reviewed'], ['pagemode', 'Page mode']];
+      function closeDb() { if (dbEl) { dbEl.remove(); dbEl = null; } }
+      function openDb() {
+        if (dbEl) return;
+        const state = { filter: 'all', q: '', offset: 0, limit: 50, total: 0, rows: [] };
+        dbEl = document.createElement('div');
+        dbEl.className = 'pstudio__dbwrap';
+        dbEl.innerHTML = `
+          <div class="pstudio__db">
+            <div class="pstudio__dbhead">
+              <strong>Layout database</strong>
+              <input class="pstudio__dbsearch" type="search" placeholder="Search series / issue…" aria-label="Search stored layouts">
+              <span style="flex:1"></span>
+              <button class="pstudio__btn ps-dbclose">Close</button>
+            </div>
+            <div class="pstudio__dbchips"></div>
+            <div class="pstudio__dblist"><div class="pstudio__dbempty">Loading…</div></div>
+            <div class="pstudio__dbfoot">
+              <button class="pstudio__btn ps-dbprev" disabled>Prev</button>
+              <span class="pstudio__dbpage"></span>
+              <button class="pstudio__btn ps-dbnext" disabled>Next</button>
+            </div>
+          </div>`;
+        root.appendChild(dbEl);
+        const chipsEl = dbEl.querySelector('.pstudio__dbchips');
+        const listEl = dbEl.querySelector('.pstudio__dblist');
+        const pageEl = dbEl.querySelector('.pstudio__dbpage');
+        const prevBtn = dbEl.querySelector('.ps-dbprev');
+        const nextBtn = dbEl.querySelector('.ps-dbnext');
+        dbEl.querySelector('.ps-dbclose').onclick = closeDb;
+        dbEl.addEventListener('pointerdown', (e) => { if (e.target === dbEl) closeDb(); }); // backdrop closes
+
+        const badge = (cls, label) => `<i class="pstudio__dbbadge${cls ? ` pstudio__dbbadge--${cls}` : ''}">${label}</i>`;
+        function renderList(j) {
+          state.rows = j.rows || [];
+          state.total = j.total || 0;
+          chipsEl.innerHTML = DB_FILTERS.map(([k, label]) =>
+            `<button data-f="${k}"${k === state.filter ? ' class="is-on"' : ''}>${label} (${j.counts?.[k] ?? 0})</button>`).join('');
+          listEl.innerHTML = state.rows.map((r, i) => {
+            const name = r.series
+              ? `${escapeHtml(r.series)}${r.issue_number != null ? ` #${escapeHtml(String(r.issue_number))}` : ''}`
+              : escapeHtml(r.file || `Issue ${r.issue_id}`);
+            const sub = r.title ? ` <small>· ${escapeHtml(r.title)}</small>` : '';
+            return `<button class="pstudio__dbrow" data-row="${i}">
+              <span class="pstudio__dbname">${name}${sub} <small>· page ${r.page + 1}</small></span>
+              ${r.engine === 'ml-box-v2' ? badge('ml', 'ML') : r.engine === 'classical' ? badge('', 'Built-in') : ''}
+              ${r.edited ? badge('edited', 'Edited') : ''}
+              ${r.reviewed ? badge('reviewed', 'Reviewed') : ''}
+              ${badge('', r.panels ? `${r.panels} panel${r.panels === 1 ? '' : 's'}` : 'page mode')}
+              <span class="pstudio__dbdate">${r.updated_at ? escapeHtml(String(r.updated_at).slice(0, 10)) : ''}</span>
+            </button>`;
+          }).join('') || '<div class="pstudio__dbempty">No stored layouts match</div>';
+          const to = state.offset + state.rows.length;
+          pageEl.textContent = `${state.total ? state.offset + 1 : 0}–${to} of ${state.total}`;
+          prevBtn.disabled = state.offset <= 0;
+          nextBtn.disabled = to >= state.total;
+        }
+        async function loadDb() {
+          listEl.innerHTML = '<div class="pstudio__dbempty">Loading…</div>';
+          const p = new URLSearchParams({ filter: state.filter, offset: String(state.offset), limit: String(state.limit) });
+          if (state.q) p.set('q', state.q);
+          try {
+            const r = await fetch(`/api/reader/panels/db?${p}`);
+            if (!r.ok) throw new Error();
+            const j = await r.json();
+            if (dbEl) renderList(j);
+          } catch { if (dbEl) listEl.innerHTML = '<div class="pstudio__dbempty">Could not load the layout database</div>'; }
+        }
+        chipsEl.addEventListener('click', (e) => {
+          const f = e.target?.dataset?.f;
+          if (f && f !== state.filter) { state.filter = f; state.offset = 0; loadDb(); }
+        });
+        prevBtn.onclick = () => { state.offset = Math.max(0, state.offset - state.limit); loadDb(); };
+        nextBtn.onclick = () => { state.offset += state.limit; loadDb(); };
+        let qTimer = null;
+        dbEl.querySelector('.pstudio__dbsearch').addEventListener('input', (e) => {
+          clearTimeout(qTimer);
+          qTimer = setTimeout(() => { state.q = e.target.value.trim(); state.offset = 0; loadDb(); }, 250);
+        });
+        listEl.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-row]');
+          const r = b && state.rows[Number(b.dataset.row)];
+          if (!r) return;
+          if (r.issue_id === id) { closeDb(); showPage(r.page); return; }
+          // Another issue: reopen the studio there (close() prompts about
+          // unsaved edits and aborts the jump if the user keeps editing).
+          closeDb();
+          if (!close()) return;
+          openPanelStudio({ cv_issue_id: r.issue_id, series_title: r.series || r.file, issue_number: r.issue_number }, r.page);
+        });
+        loadDb();
+      }
+      $s('.ps-db').onclick = openDb;
+
       // ---- save / close / keys
       saveBtn.onclick = async () => {
         saveBtn.disabled = true;
@@ -2277,11 +2421,13 @@
       };
 
       function close() {
-        if (dirty() && !window.confirm('Discard unsaved panel edits?')) return;
+        if (dirty() && !window.confirm('Discard unsaved panel edits?')) return false;
         stopPreview();
+        closeDb();
         document.removeEventListener('keydown', onStudioKey, true);
         document.body.style.overflow = '';
         root.remove();
+        return true;
       }
       $s('.ps-close').onclick = close;
 
@@ -2300,6 +2446,12 @@
       };
 
       function onStudioKey(e) {
+        if (dbEl) {
+          // Database browser open: Esc closes it; everything else (typing in
+          // the search box, arrows) belongs to the browser, not the editor.
+          if (e.key === 'Escape') { closeDb(); e.preventDefault(); e.stopPropagation(); }
+          return;
+        }
         const mod = e.ctrlKey || e.metaKey;
         if (e.key === 'Escape') {
           if (polyDraft) cancelPolyDraft();
@@ -2352,7 +2504,13 @@
       document.addEventListener('keydown', onStudioKey, true);
       window.addEventListener('resize', () => { if (root.isConnected && zoomZ === 1) { baseW = imgEl.clientWidth; renderEdit(); } });
 
-      if (await loadPanels()) { buildRail(); showPage(pages[0]?.page ?? 0); }
+      if (await loadPanels()) {
+        buildRail();
+        // A database-browser jump lands straight on the clicked page.
+        const first = Number.isInteger(targetPage) && pages.some((p) => p.page === targetPage)
+          ? targetPage : (pages[0]?.page ?? 0);
+        showPage(first);
+      }
     }
 
     // ---------- registration with the app ----------

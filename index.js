@@ -12,6 +12,7 @@ import { detectPanels, orderPanels } from './panels.js';
 import { createMlDetector } from './mlpanels.js';
 import { createPanelCache, pageHash, pageDhash } from './panelcache.js';
 import { ensurePanelModel } from './modeldl.js';
+import { registerPanelsDbRoute } from './paneldb.js';
 import { roleGrants, CORE_PERMISSIONS } from '../../src/users.js';
 import { registeredPermissions } from '../../src/plugins.js';
 import { openReaderStore } from './store.js';
@@ -251,6 +252,10 @@ export default function register(api) {
     const total = names.length;
     panelProgress.set(issueId, { done: 0, total });
     const share = panelCache.enabled();
+    // Human corrections outrank every detector: a recompute (engine upgrade,
+    // cache miss) must never spend CPU re-detecting a page someone already
+    // fixed by hand. Overrides are keyed to the raw file, not the engine.
+    const override = store.panelsOverride(issueId, fileKeyOf(filePath)) || {};
 
     // Phase 1: hash every page (cheap) and batch-look-up the community cache,
     // so we only spend detection CPU on pages nobody has covered yet.
@@ -271,7 +276,19 @@ export default function register(api) {
     for (let i = 0; i < total; i++) {
       let panels = [];
       const hit = hashes[i] ? hits.get(hashes[i]) : null;
-      if (hit && Array.isArray(hit.panels)) {
+      const ov = override[String(i)];
+      if (Array.isArray(ov)) {
+        // Page already corrected by hand: the edit is the layout. Re-assert
+        // it to the community cache too — edits made while sharing was off
+        // (or lost server-side) get back-filled on the next recompute.
+        panels = ov;
+        if (share && hashes[i]) {
+          try {
+            const { buffer } = await pageBuffer(filePath, i);
+            submit.push({ hash: hashes[i], dhash: await pageDhash(sharp, buffer), source: 'human', engine: 'human', panels: ov });
+          } catch { /* sharing is best-effort */ }
+        }
+      } else if (hit && Array.isArray(hit.panels)) {
         panels = hit.panels;
       } else {
         try {
@@ -451,6 +468,11 @@ export default function register(api) {
       } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
     }, { access: CAN_EDIT_PANELS });
   }
+
+  // GET /api/reader/panels/db — Panel Studio's database browser: every stored
+  // page layout across the library, filterable + paged. Read-only, same
+  // permission as the other layout-editing routes (route lives in paneldb.js).
+  registerPanelsDbRoute(api, store, CAN_EDIT_PANELS);
 
   // Normalized panel payload → clean panels or null. Max 24 panels, rects in
   // [0,1] with sane size, optional 3-8 point poly also in [0,1].

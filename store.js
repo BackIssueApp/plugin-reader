@@ -519,6 +519,105 @@ export function openReaderStore(dbPath) {
           .run(JSON.stringify(existing), issueId);
       }
     },
+    /** Panel-layout database browser: one row per stored PAGE layout across
+     *  every issue — auto detections (reader_panels, whose engine is baked
+     *  into the file-key's |ml… suffix), hand edits (reader_panels_user) and
+     *  review marks joined in. json_each explodes the per-issue JSON inside
+     *  SQLite, so filtering and pagination stay SQL-side — the layout tables
+     *  are never loaded into memory. filter:
+     *  all|ml|classical|edited|reviewed|pagemode; q matches series/issue text
+     *  (or the file path, which also covers files with no CV metadata). */
+    panelsDb({ filter = 'all', q = '', offset = 0, limit = 50 } = {}) {
+      const f = ['all', 'ml', 'classical', 'edited', 'reviewed', 'pagemode'].includes(filter) ? filter : 'all';
+      const qq = String(q || '').trim();
+      const lim = Math.min(200, Math.max(1, Number(limit) || 50));
+      const off = Math.max(0, Number(offset) || 0);
+      const hasCv = ['cv_issues', 'cv_series'].every((t) =>
+        db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t));
+      // Overrides/reviews are keyed to the RAW file key (no engine suffix), so
+      // they only attach to a detection row describing the same file on disk.
+      const prelude = `
+        WITH det AS (
+          SELECT rp.issue_id,
+                 CAST(json_extract(je.value, '$.page') AS INTEGER) AS page,
+                 COALESCE(json_array_length(je.value, '$.panels'), 0) AS n,
+                 CASE WHEN instr(rp.file_key, '|ml') > 0 THEN 'ml-box-v2' ELSE 'classical' END AS engine,
+                 CASE WHEN instr(rp.file_key, '|ml') > 0
+                      THEN substr(rp.file_key, 1, instr(rp.file_key, '|ml') - 1)
+                      ELSE rp.file_key END AS raw_key,
+                 rp.created_at AS at
+            FROM reader_panels rp, json_each(rp.pages) je
+        ),
+        ov AS (
+          SELECT pu.issue_id, CAST(je.key AS INTEGER) AS page,
+                 COALESCE(json_array_length(je.value), 0) AS n,
+                 pu.file_key AS raw_key, pu.updated_at AS at
+            FROM reader_panels_user pu, json_each(pu.pages) je
+        ),
+        base AS (
+          SELECT d.issue_id, d.page, d.engine, d.raw_key,
+                 CASE WHEN o.page IS NULL THEN 0 ELSE 1 END AS edited,
+                 COALESCE(o.n, d.n) AS panels,        -- the layout actually served
+                 COALESCE(o.at, d.at) AS updated_at
+            FROM det d
+            LEFT JOIN ov o ON o.issue_id = d.issue_id AND o.page = d.page AND o.raw_key = d.raw_key
+          UNION ALL
+          -- hand edits with no cached detection (e.g. after a redetect wipe)
+          SELECT o.issue_id, o.page, NULL, o.raw_key, 1, o.n, o.at
+            FROM ov o
+           WHERE NOT EXISTS (SELECT 1 FROM det d
+                              WHERE d.issue_id = o.issue_id AND d.page = o.page AND d.raw_key = o.raw_key)
+        ),
+        joined AS (
+          SELECT b.*,
+                 EXISTS (SELECT 1 FROM reader_panels_review pr, json_each(pr.pages) jr
+                          WHERE pr.issue_id = b.issue_id AND pr.file_key = b.raw_key
+                            AND CAST(jr.value AS INTEGER) = b.page) AS reviewed,
+                 ${hasCv ? 'ci.name' : 'NULL'} AS title,
+                 ${hasCv ? 'ci.issue_number' : 'NULL'} AS issue_number,
+                 ${hasCv ? 'cs.name' : 'NULL'} AS series
+            FROM base b
+            ${hasCv ? `LEFT JOIN cv_issues ci ON ci.comicvine_id = b.issue_id
+            LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id` : ''}
+        ),
+        matched AS (
+          SELECT * FROM joined
+           WHERE @q = '' OR series LIKE @like OR title LIKE @like
+              OR issue_number LIKE @like OR raw_key LIKE @like
+        )`;
+      const cnt = db.prepare(`${prelude}
+        SELECT COUNT(*) AS "all",
+               SUM(CASE WHEN engine = 'ml-box-v2' THEN 1 ELSE 0 END) AS ml,
+               SUM(CASE WHEN engine = 'classical' THEN 1 ELSE 0 END) AS classical,
+               SUM(edited) AS edited,
+               SUM(reviewed) AS reviewed,
+               SUM(CASE WHEN panels = 0 THEN 1 ELSE 0 END) AS pagemode
+          FROM matched`).get({ q: qq, like: `%${qq}%` });
+      const rows = db.prepare(`${prelude}
+        SELECT * FROM matched
+         WHERE @f = 'all'
+            OR (@f = 'ml' AND engine = 'ml-box-v2')
+            OR (@f = 'classical' AND engine = 'classical')
+            OR (@f = 'edited' AND edited = 1)
+            OR (@f = 'reviewed' AND reviewed = 1)
+            OR (@f = 'pagemode' AND panels = 0)
+         ORDER BY updated_at DESC, issue_id, page
+         LIMIT @lim OFFSET @off`).all({ q: qq, like: `%${qq}%`, f, lim, off });
+      const c = (k) => Number(cnt?.[k] || 0);
+      const counts = { all: c('all'), ml: c('ml'), classical: c('classical'), edited: c('edited'), reviewed: c('reviewed'), pagemode: c('pagemode') };
+      const fileOf = (rk) => String(rk || '').split('|')[0].split(/[\\/]/).pop() || null;
+      return {
+        total: counts[f],
+        counts,
+        rows: rows.map((r) => ({
+          issue_id: r.issue_id, page: r.page,
+          series: r.series ?? null, title: r.title ?? null, issue_number: r.issue_number ?? null,
+          file: fileOf(r.raw_key),
+          engine: r.engine ?? null, edited: !!r.edited, reviewed: !!r.reviewed,
+          panels: r.panels, updated_at: r.updated_at ?? null,
+        })),
+      };
+    },
     /** Per-user, per-series reading profile — your manga stays RTL, theirs doesn't. */
     seriesPrefs(userId, seriesId) {
       return db.prepare('SELECT mode, rtl, fit, split, spread_offset FROM reader_series_prefs WHERE user_id = ? AND series_id = ?').get(userId, seriesId) || null;

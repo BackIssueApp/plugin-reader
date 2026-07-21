@@ -8,6 +8,28 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Fixed
+- **Review mode + unsaved edits**: pressing Space on a page with pending panel
+  edits now saves that page first (which marks it reviewed and shares the
+  human layout) instead of casting a "layout is correct" vote for the old
+  layout the edit was replacing. A pending revert is likewise applied before
+  the confirmation counts.
+
+### Changed
+- **Recomputes respect human edits**: when a panel layout is recomputed (engine
+  upgrade, model change, cache miss), pages with hand-corrected layouts are no
+  longer re-detected — the edit is used directly, and is re-shared to the
+  community cache so corrections made before sharing was enabled get
+  back-filled.
+
+### Added
+- **Panel studio — layout database browser**: a new "Database" button in the
+  studio opens a read-only browser over every panel layout stored on the
+  server, with summary counts, filter chips (ML / built-in / edited /
+  reviewed / page mode), text search, and paging. Clicking a row jumps the
+  studio straight to that issue and page — including issues other than the
+  one currently open.
+
 ## [1.6.0] — 2026-07-20
 
 ### Added
