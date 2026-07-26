@@ -8,6 +8,14 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-07-26
+
+### Changed
+- **Home rails coexist with other plugins.** The reading rails now render into a
+  self-owned wrapper inside the shared home slot instead of taking over the whole
+  slot, so another plugin's home rails (e.g. audiobooks) can sit alongside them
+  rather than being replaced. Reading rails stay on top; the layout is unchanged.
+
 ## [1.6.1] - 2026-07-20
 
 ### Fixed

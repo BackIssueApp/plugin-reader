@@ -1418,14 +1418,26 @@
       // content is unchanged, so its cover images don't reload and flash. Only a
       // shelf that actually changed is swapped; if nothing changed, don't touch
       // the DOM at all (closing a book you didn't advance → no flash).
-      const existing = new Map([...railSlot.children].map((el) => [el.dataset.shelf, el]));
+      // Render into a reader-owned wrapper inside the shared slot, so other
+      // plugins (e.g. audiobooks) can add their own rails without either side
+      // clobbering the other. `display:contents` keeps the sections as direct
+      // flex items of the slot, so the slot's inter-rail gap still applies.
+      let wrap = railSlot.querySelector('#reader-home-rails');
+      if (!desired.length) { if (wrap) wrap.remove(); return; }
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'reader-home-rails';
+        wrap.style.display = 'contents';
+        railSlot.prepend(wrap); // reading rails sit above other plugins' rails
+      }
+      const existing = new Map([...wrap.children].map((el) => [el.dataset.shelf, el]));
       const finalNodes = desired.map((next) => {
         const old = existing.get(next.dataset.shelf);
         return old && old.innerHTML === next.innerHTML ? old : next;
       });
-      const unchanged = finalNodes.length === railSlot.children.length
-        && finalNodes.every((n, i) => n === railSlot.children[i]);
-      if (!unchanged) railSlot.replaceChildren(...finalNodes);
+      const unchanged = finalNodes.length === wrap.children.length
+        && finalNodes.every((n, i) => n === wrap.children[i]);
+      if (!unchanged) wrap.replaceChildren(...finalNodes);
     }
     function dedupeByIssue(items) {
       const seen = new Set(); const out = [];
