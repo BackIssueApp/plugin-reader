@@ -235,7 +235,7 @@
       if (overlay && overlay.classList.contains('is-open')) closeReader();
     });
 
-    function closeReader() {
+    function closeReader({ keepHistory = false } = {}) {
       if (!overlay) return;
       stopAutoScroll();
       pushProgress(true);
@@ -250,7 +250,11 @@
       loadReadStates(); // refresh ▶/◐/✓ badges with what was just read
       renderHomeRails(); // and the home shelves — progress just changed
       if (lastFocus && lastFocus.focus) lastFocus.focus();
-      if (histArmed) { histArmed = false; try { history.back(); } catch { /* fine */ } }
+      // Navigating away (Go to series) supersedes the reader's history entry —
+      // running history.back() here would race the forward navigation and undo
+      // it, so the caller opts out and just leaves the entry to be replaced.
+      if (histArmed && !keepHistory) { histArmed = false; try { history.back(); } catch { /* fine */ } }
+      else if (keepHistory) histArmed = false;
     }
 
     // Persist the current reading profile for THIS series (called on any
@@ -286,7 +290,6 @@
           <button class="reader__btn r-rotate"   title="Rotate page (r)" aria-label="Rotate page">${icon('rotate')}</button>
           <button class="reader__btn r-bookmark" title="Bookmark page (b)" aria-label="Bookmark page">${icon('bookmark')}</button>
           <button class="reader__btn r-later"    title="Read later" aria-label="Read later">${icon('clock')}</button>
-          <button class="reader__btn r-series"   title="Go to series" aria-label="Go to series">${icon('library')}</button>
           <button class="reader__btn r-info"     title="Issue info (i)" aria-label="Issue info">${icon('info')}</button>
           <button class="reader__btn r-offline"  title="Download for offline" aria-label="Download for offline">${icon('download')}</button>
           <button class="reader__btn r-settings" title="Display settings" aria-label="Display settings">${icon('settings')}</button>
@@ -394,14 +397,17 @@
       placeTools();
 
       overlay.querySelector('.reader__close').onclick = closeReader;
-      // Jump from the comic you're reading to its series page — the fast path
-      // the library grid and search were previously the only routes to.
-      overlay.querySelector('.r-series').onclick = () => {
+      // The series name in the title bar is a link to the series page — the
+      // fast path the library grid and search were previously the only routes
+      // to. Delegated because the title's inner markup is re-rendered per issue.
+      els.title.addEventListener('click', (e) => {
+        const link = e.target.closest('.reader__series-link');
+        if (!link) return;
         const id = manifest?.series?.id;
         if (id == null) return;
-        closeReader();
+        closeReader({ keepHistory: true });
         if (api.openSeries) api.openSeries(id);
-      };
+      });
       // Panel-only mode: clicking the dim backdrop closes it.
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay && overlay.classList.contains('is-panelonly')) closeReader();
@@ -1022,7 +1028,9 @@
     // ---------- HUD / slider marks / thumbs ----------
     function syncHud() {
       if (!manifest) return;
-      els.title.textContent = `${manifest.series.title} — #${manifest.issue.number ?? '?'}${manifest.issue.title ? ' · ' + manifest.issue.title : ''}`;
+      const suffix = `#${manifest.issue.number ?? '?'}${manifest.issue.title ? ' · ' + manifest.issue.title : ''}`;
+      els.title.innerHTML = `<button type="button" class="reader__series-link" title="Go to series">${escapeHtml(manifest.series.title)}</button>`
+        + ` <span class="reader__title-issue">— ${escapeHtml(suffix)}</span>`;
       els.count.textContent = `${page + 1} / ${manifest.pages}`;
       els.slider.max = manifest.pages - 1;
       els.slider.value = page;

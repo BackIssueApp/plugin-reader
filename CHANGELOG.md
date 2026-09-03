@@ -8,6 +8,16 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-09-02
+
+### Changed
+
+- **Go to series is now the series name in the reader top bar**, not a separate
+  button — clearer, and it drops a button icon that did not render. Clicking
+  the series name jumps to its series page (fixing a history-handling race that
+  could bounce you back). The home-rail right-click / long-press menu is
+  unchanged.
+
 ## [1.7.0] — 2026-09-02
 
 ### Added
