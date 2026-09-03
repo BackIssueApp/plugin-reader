@@ -286,6 +286,7 @@
           <button class="reader__btn r-rotate"   title="Rotate page (r)" aria-label="Rotate page">${icon('rotate')}</button>
           <button class="reader__btn r-bookmark" title="Bookmark page (b)" aria-label="Bookmark page">${icon('bookmark')}</button>
           <button class="reader__btn r-later"    title="Read later" aria-label="Read later">${icon('clock')}</button>
+          <button class="reader__btn r-series"   title="Go to series" aria-label="Go to series">${icon('library')}</button>
           <button class="reader__btn r-info"     title="Issue info (i)" aria-label="Issue info">${icon('info')}</button>
           <button class="reader__btn r-offline"  title="Download for offline" aria-label="Download for offline">${icon('download')}</button>
           <button class="reader__btn r-settings" title="Display settings" aria-label="Display settings">${icon('settings')}</button>
@@ -393,6 +394,14 @@
       placeTools();
 
       overlay.querySelector('.reader__close').onclick = closeReader;
+      // Jump from the comic you're reading to its series page — the fast path
+      // the library grid and search were previously the only routes to.
+      overlay.querySelector('.r-series').onclick = () => {
+        const id = manifest?.series?.id;
+        if (id == null) return;
+        closeReader();
+        if (api.openSeries) api.openSeries(id);
+      };
       // Panel-only mode: clicking the dim backdrop closes it.
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay && overlay.classList.contains('is-panelonly')) closeReader();
@@ -1478,7 +1487,61 @@
           : `<small class="reader-rail__sub">${escapeHtml(it.title || shelf.title)}</small>`}`;
       const page = shelf.page ? shelf.page(it) : null;
       el.onclick = () => openReader(it.issue_id, page);
+      // Left-click reads (the common path stays one click). Right-click, or a
+      // long-press on touch, offers "Go to series" — the fast route the library
+      // grid and search were previously the only ways to reach.
+      el.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(e.clientX, e.clientY, it); };
+      let lp;
+      el.addEventListener('touchstart', (e) => {
+        const t = e.touches[0];
+        lp = setTimeout(() => { lp = null; openCardMenu(t.clientX, t.clientY, it); }, 500);
+      }, { passive: true });
+      const cancelLp = () => { if (lp) { clearTimeout(lp); lp = null; } };
+      el.addEventListener('touchend', cancelLp);
+      el.addEventListener('touchmove', cancelLp);
       return el;
+    }
+
+    // A tiny one-item context menu for a rail card. Positioned at the pointer,
+    // dismissed on the next click/scroll/escape. Resolves the LOCAL series id on
+    // demand (the rail rows don't carry it) via the issue endpoint, then routes.
+    let cardMenuEl = null;
+    function closeCardMenu() {
+      if (cardMenuEl) { cardMenuEl.remove(); cardMenuEl = null; }
+      document.removeEventListener('scroll', closeCardMenu, true);
+    }
+    function openCardMenu(x, y, it) {
+      closeCardMenu();
+      const menu = document.createElement('div');
+      menu.className = 'reader-rail__menu';
+      const go = document.createElement('button');
+      go.className = 'reader-rail__menu-item';
+      go.innerHTML = `${hicon('library', { size: 15 }, '')}<span>Go to series</span>`;
+      go.onclick = async (e) => {
+        e.stopPropagation();
+        closeCardMenu();
+        let sid = it.series_local_id ?? null;
+        if (sid == null) {
+          try { sid = (await api.get(`/api/reader/issue/${it.issue_id}`))?.series?.id ?? null; } catch { /* fall through */ }
+        }
+        if (sid != null && api.openSeries) api.openSeries(sid);
+        else if (api.toast) api.toast("That issue is not linked to a series in your library.", "info");
+      };
+      menu.appendChild(go);
+      document.body.appendChild(menu);
+      // Keep it on-screen: flip left/up near the right/bottom edges.
+      const r = menu.getBoundingClientRect();
+      menu.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+      menu.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+      cardMenuEl = menu;
+      // Dismiss on the next interaction (defer so THIS event doesn't close it).
+      setTimeout(() => {
+        document.addEventListener('click', closeCardMenu, { once: true });
+        document.addEventListener('scroll', closeCardMenu, true);
+        document.addEventListener('keydown', function esc(ev) {
+          if (ev.key === 'Escape') { closeCardMenu(); document.removeEventListener('keydown', esc); }
+        });
+      }, 0);
     }
     async function hideShelf(shelf) {
       try { homePrefs = await api.post('/api/reader/home-prefs', { [shelf.pref]: false }); } catch { /* retry next render */ }

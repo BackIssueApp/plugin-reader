@@ -8,6 +8,17 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-09-02
+
+### Added
+
+- **Go to series, without hunting for it.** The reader now has a **Go to
+  series** button in its top bar, so you can jump straight from the comic
+  you are reading to its series page. On the home reading rails, right-click
+  (or long-press on touch) a card for the same **Go to series** action —
+  left-click still opens the reader, so the read-and-go path is unchanged.
+  Previously the only routes to a series were the library grid and search.
+
 ## [1.6.2] - 2026-07-26
 
 ### Changed
