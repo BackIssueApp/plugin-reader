@@ -111,9 +111,11 @@ export default function register(api) {
   // is not paid for by the person opening it.
   setPageCacheDir(path.join(path.dirname(config.dbPath || '.'), 'cache', 'pages'));
   async function warmCovers({ limit = 400 } = {}) {
+    // Newest files first (library_files has no row id; scanned_at is when a
+    // file was last seen, mtime when it landed on disk).
     const rows = cat.prepare(`SELECT lf.path FROM library_files lf
       WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL AND lf.path IS NOT NULL
-      ORDER BY lf.id DESC LIMIT 3000`).all();
+      ORDER BY lf.scanned_at DESC, lf.mtime DESC LIMIT 3000`).all();
     let rendered = 0, skipped = 0, failed = 0;
     for (const { path: file } of rows) {
       if (rendered >= limit) break;
@@ -136,7 +138,11 @@ export default function register(api) {
     run: () => warmCovers(),
   });
   // Boot catch-up, after the rest of startup has settled.
-  setTimeout(() => { warmCovers({ limit: 200 }).catch(() => {}); }, 20_000).unref();
+  setTimeout(() => {
+    warmCovers({ limit: 200 })
+      .then((r) => console.log(`reader: cover pre-render at boot — ${r.rendered} rendered, ${r.skipped} already cached, ${r.failed} failed`))
+      .catch((e) => console.warn(`reader: cover pre-render failed: ${e?.message || e}`));
+  }, 20_000).unref();
 
   // Reading prefs for a series. Manga reads right-to-left by default: with no
   // saved prefs, seed rtl from the core library type — a user's explicit
