@@ -5,6 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import crypto from 'node:crypto';
 import yauzl from 'yauzl';
 import { createExtractorFromData } from 'node-unrar-js';
 
@@ -144,6 +145,61 @@ const resizeCache = new Map(); // `${path}:${index}:${w}:${webp}:${trim}` → { 
 const RESIZE_CACHE_MAX = 300;
 const ALLOWED_WIDTHS = [200, 400, 800, 1200, 1600];
 
+// On-disk copy of every processed variant, so a restart (or the memory LRU
+// rolling over) does not send the next Home screen back to the archives:
+// 30-odd shelf covers read cold off network storage and resized took ~2.5 s,
+// warm they take ~30 ms. Keyed by a hash of path/index/width/format AND the
+// file's mtime, so a re-downloaded file simply produces a new name. Bounded
+// by entry count; the oldest files go when the cap is passed.
+let diskCacheDir = null;
+let diskWrites = 0;
+const DISK_CACHE_MAX = 20_000;   // ~20 KB per shelf cover → a few hundred MB at most
+const DISK_CACHE_KEEP = 16_000;
+export function setPageCacheDir(dir) {
+  diskCacheDir = dir || null;
+  if (diskCacheDir) { try { fs.mkdirSync(diskCacheDir, { recursive: true }); } catch { diskCacheDir = null; } }
+}
+export function pageCacheDir() { return diskCacheDir; }
+function diskPathFor(key, mtime, webp) {
+  if (!diskCacheDir) return null;
+  const h = crypto.createHash('sha1').update(`${key}|${Math.round(mtime)}`).digest('hex');
+  return path.join(diskCacheDir, `${h}.${webp ? 'webp' : 'jpg'}`);
+}
+async function diskRead(file) {
+  if (!file) return null;
+  try { return await fsp.readFile(file); } catch { return null; }
+}
+async function diskWrite(file, buffer) {
+  if (!file) return;
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fsp.writeFile(tmp, buffer);
+    await fsp.rename(tmp, file);
+    if (++diskWrites % 200 === 0) await pruneDiskCache();
+  } catch { /* a cache miss next time, nothing worse */ }
+}
+async function pruneDiskCache() {
+  if (!diskCacheDir) return;
+  try {
+    const names = (await fsp.readdir(diskCacheDir)).filter((n) => /\.(webp|jpg)$/.test(n));
+    if (names.length <= DISK_CACHE_MAX) return;
+    const stats = await Promise.all(names.map(async (n) => ({ n, t: (await fsp.stat(path.join(diskCacheDir, n))).mtimeMs })));
+    stats.sort((a, b) => a.t - b.t);
+    for (const s of stats.slice(0, stats.length - DISK_CACHE_KEEP)) await fsp.unlink(path.join(diskCacheDir, s.n)).catch(() => {});
+  } catch { /* ignore */ }
+}
+/** True when a processed variant is already on disk (used by the cover warm job to skip work). */
+export async function pageVariantCached(filePath, index, width, { webp = false, trim = false } = {}) {
+  const w = clampWidth(width);
+  if (!diskCacheDir || (!w && !trim)) return false;
+  try {
+    const mtime = (await fsp.stat(filePath)).mtimeMs;
+    const file = diskPathFor(`${filePath}:${index}:${w}:${webp ? 1 : 0}:${trim ? 1 : 0}`, mtime, webp);
+    await fsp.access(file);
+    return true;
+  } catch { return false; }
+}
+
 export function clampWidth(w) {
   const n = Number(w) | 0;
   if (!n) return 0;
@@ -157,6 +213,14 @@ export async function pageBufferResized(filePath, index, width, { webp = false, 
   const key = `${filePath}:${index}:${w}:${webp ? 1 : 0}:${trim ? 1 : 0}`;
   const hit = resizeCache.get(key);
   if (hit && hit.mtime === mtime) return { buffer: hit.buffer, contentType: hit.type };
+  const type0 = webp ? 'image/webp' : 'image/jpeg';
+  const diskFile = diskPathFor(key, mtime, webp);
+  const onDisk = await diskRead(diskFile);
+  if (onDisk) {
+    resizeCache.set(key, { mtime, buffer: onDisk, type: type0 });
+    while (resizeCache.size > RESIZE_CACHE_MAX) resizeCache.delete(resizeCache.keys().next().value);
+    return { buffer: onDisk, contentType: type0 };
+  }
   const { buffer } = await pageBuffer(filePath, index);
   const { default: sharp } = await import('sharp');
   let img = sharp(buffer);
@@ -168,5 +232,6 @@ export async function pageBufferResized(filePath, index, width, { webp = false, 
     : await img.jpeg({ quality: 78 }).toBuffer();
   resizeCache.set(key, { mtime, buffer: out, type });
   while (resizeCache.size > RESIZE_CACHE_MAX) resizeCache.delete(resizeCache.keys().next().value);
+  diskWrite(diskFile, out); // fire-and-forget; the response never waits on the disk
   return { buffer: out, contentType: type };
 }

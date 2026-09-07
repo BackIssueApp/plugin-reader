@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import config from '../../src/config.js';
-import { listPages, pageBuffer, pageBufferResized } from './pages.js';
+import { listPages, pageBuffer, pageBufferResized, setPageCacheDir, pageVariantCached } from './pages.js';
 import { detectPanels, orderPanels } from './panels.js';
 import { createMlDetector } from './mlpanels.js';
 import { createPanelCache, pageHash, pageDhash } from './panelcache.js';
@@ -103,6 +103,40 @@ export default function register(api) {
   const uid = (req) => req.user?.id ?? 0;
   // Read-only view of the core catalog (issue → file, series order).
   const cat = new Database(config.dbPath, { readonly: true });
+
+  // Processed page variants persist under the data dir, and the cover
+  // thumbnail every shelf and grid asks for (page 0 at w=200, WebP for the
+  // apps and modern browsers, JPEG for the rest) is rendered ahead of time
+  // for new files, so the first Home screen after a restart or a download
+  // is not paid for by the person opening it.
+  setPageCacheDir(path.join(path.dirname(config.dbPath || '.'), 'cache', 'pages'));
+  async function warmCovers({ limit = 400 } = {}) {
+    const rows = cat.prepare(`SELECT lf.path FROM library_files lf
+      WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL AND lf.path IS NOT NULL
+      ORDER BY lf.id DESC LIMIT 3000`).all();
+    let rendered = 0, skipped = 0, failed = 0;
+    for (const { path: file } of rows) {
+      if (rendered >= limit) break;
+      for (const webp of [true, false]) {
+        try {
+          if (await pageVariantCached(file, 0, 200, { webp })) { skipped++; continue; }
+          await pageBufferResized(file, 0, 200, { webp });
+          rendered++;
+        } catch { failed++; }
+      }
+    }
+    return { rendered, skipped, failed };
+  }
+  config.readerCoverWarmCron ??= '15 * * * *';
+  config.readerCoverWarmEnabled ??= true;
+  api.registerJob?.({
+    id: 'reader-cover-warm',
+    label: 'Pre-render issue covers',
+    scheduleKey: 'readerCoverWarmHours',
+    run: () => warmCovers(),
+  });
+  // Boot catch-up, after the rest of startup has settled.
+  setTimeout(() => { warmCovers({ limit: 200 }).catch(() => {}); }, 20_000).unref();
 
   // Reading prefs for a series. Manga reads right-to-left by default: with no
   // saved prefs, seed rtl from the core library type — a user's explicit

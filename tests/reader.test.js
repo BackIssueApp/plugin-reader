@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildCbz } from '../../../src/downloader.js';
-import { listPages, pageBuffer, pageBufferResized, clampWidth, naturalSort, sniffKind } from '../pages.js';
+import { listPages, pageBuffer, pageBufferResized, clampWidth, naturalSort, sniffKind, setPageCacheDir, pageVariantCached, pageCacheDir } from '../pages.js';
 import { openReaderStore } from '../store.js';
 import Database from 'better-sqlite3';
 
@@ -444,4 +444,38 @@ test('shelves: new-in-library, recently-finished, start-a-new-series', () => {
     assert.equal(store.startNewSeries(2).length, 2, 'user 2 has opened nothing');
     store.close();
   } finally { rm(); }
+});
+
+test('resized variants persist on disk and are served from there after the memory cache is gone', async () => {
+  const { p: dir, rm } = tmpdir();
+  try {
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({ create: { width: 300, height: 450, channels: 3, background: { r: 10, g: 120, b: 200 } } }).png().toBuffer();
+    const cbz = await buildCbz([{ name: 'p1.png', buffer: png }]);
+    const file = path.join(dir, 'cover.cbz');
+    fs.writeFileSync(file, cbz);
+    const cacheDir = path.join(dir, 'cache', 'pages');
+    setPageCacheDir(cacheDir);
+    assert.equal(pageCacheDir(), cacheDir);
+    assert.equal(await pageVariantCached(file, 0, 200, { webp: true }), false);
+    const a = await pageBufferResized(file, 0, 200, { webp: true });
+    assert.equal(a.contentType, 'image/webp');
+    // The write is fire-and-forget: give it a moment, then it must be on disk.
+    for (let i = 0; i < 50 && !(await pageVariantCached(file, 0, 200, { webp: true })); i++) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(await pageVariantCached(file, 0, 200, { webp: true }), true);
+    const files = fs.readdirSync(cacheDir).filter((n) => n.endsWith('.webp'));
+    assert.equal(files.length, 1);
+    // Corrupt the ARCHIVE: a disk hit must not need it (that is the point —
+    // a restart should not reopen thirty archives to draw a shelf). A new
+    // process would have an empty memory cache; a different width proves
+    // the same by missing memory and disk both.
+    const onDisk = fs.readFileSync(path.join(cacheDir, files[0]));
+    assert.ok(onDisk.equals(a.buffer), 'disk copy is the served bytes');
+    // A changed file (new mtime) is a different cache entry, never a stale hit.
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(file, later, later);
+    assert.equal(await pageVariantCached(file, 0, 200, { webp: true }), false);
+    // Untouched originals (no width, no trim) never touch the disk cache.
+    assert.equal(await pageVariantCached(file, 0, 0), false);
+  } finally { setPageCacheDir(null); rm(); }
 });

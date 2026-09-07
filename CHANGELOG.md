@@ -8,6 +8,20 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-09-07
+
+### Changed
+
+- **Covers and resized pages survive a restart.** Every processed page
+  variant (thumbnails, phone-sized pages, trimmed pages) is now kept on disk
+  under the data directory as well as in memory, so the first Home screen or
+  library grid after a restart no longer reads thirty archives cold off the
+  storage. Bounded to about twenty thousand files, oldest out first.
+- **Covers are rendered ahead of time.** A new hourly job, Pre-render issue
+  covers, makes the cover thumbnail for newly imported files, and a boot
+  catch-up does the same for the newest few hundred, so a fresh download
+  shows its cover on the shelves without anyone paying for the first render.
+
 ## [1.7.1] — 2026-09-02
 
 ### Changed
