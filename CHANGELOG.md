@@ -8,6 +8,15 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-09-07
+
+### Fixed
+
+- **Shelf covers are pre-rendered first.** The boot catch-up rendered the
+  newest files' covers, which is not what the Home shelves show. Each
+  user's Continue, Next up, New, Recently finished and Start new items now
+  come first, then the newest files.
+
 ## [1.8.0] — 2026-09-07
 
 ### Changed

@@ -110,12 +110,40 @@ export default function register(api) {
   // for new files, so the first Home screen after a restart or a download
   // is not paid for by the person opening it.
   setPageCacheDir(path.join(path.dirname(config.dbPath || '.'), 'cache', 'pages'));
+  // What every Home screen will ask for: each user's shelves (continue,
+  // next up, new, recently finished, start new) come first, then the newest
+  // files, so a restart or a fresh download never shows a blank shelf.
+  function shelfFiles() {
+    const files = [];
+    const seen = new Set();
+    let users = [];
+    try { users = cat.prepare('SELECT id FROM users ORDER BY id LIMIT 50').all().map((u) => u.id); } catch { /* no users table yet */ }
+    if (!users.length) users = [0];
+    for (const u of users) {
+      let items = [];
+      try {
+        items = [
+          ...store.continueList(u, 10), ...store.nextUpList(u, 12), ...store.newInLibrary(u, 12),
+          ...store.recentlyFinished(u, 12), ...store.startNewSeries(u, 12),
+        ];
+      } catch { continue; }
+      for (const it of items) {
+        const id = Number(it?.issue_id);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const file = it.file_path || issueRow(id)?.file_path;
+        if (file) files.push(file);
+      }
+    }
+    return files;
+  }
   async function warmCovers({ limit = 400 } = {}) {
     // Newest files first (library_files has no row id; scanned_at is when a
     // file was last seen, mtime when it landed on disk).
-    const rows = cat.prepare(`SELECT lf.path FROM library_files lf
+    const newest = cat.prepare(`SELECT lf.path FROM library_files lf
       WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL AND lf.path IS NOT NULL
-      ORDER BY lf.scanned_at DESC, lf.mtime DESC LIMIT 3000`).all();
+      ORDER BY lf.scanned_at DESC, lf.mtime DESC LIMIT 3000`).all().map((r) => r.path);
+    const rows = [...new Set([...shelfFiles(), ...newest])].map((path) => ({ path }));
     let rendered = 0, skipped = 0, failed = 0;
     for (const { path: file } of rows) {
       if (rendered >= limit) break;
