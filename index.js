@@ -113,20 +113,24 @@ export default function register(api) {
   // What every Home screen will ask for: each user's shelves (continue,
   // next up, new, recently finished, start new) come first, then the newest
   // files, so a restart or a fresh download never shows a blank shelf.
-  function shelfFiles() {
+  async function shelfFiles() {
+    // Only people who have read something lately have shelves worth warming
+    // (120 users × five shelf queries at boot once stalled the server for
+    // 13 s). Three cheap, progress-driven shelves per user, one user at a
+    // time with a breather between them; the newest-files pass below covers
+    // "new in library" and "start new" well enough.
     const files = [];
     const seen = new Set();
     let users = [];
-    try { users = cat.prepare('SELECT id FROM users ORDER BY id LIMIT 50').all().map((u) => u.id); } catch { /* no users table yet */ }
-    if (!users.length) users = [0];
+    try {
+      users = cat.prepare(`SELECT user_id FROM reader_progress
+        WHERE updated_at >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-30 days')
+        GROUP BY user_id ORDER BY MAX(updated_at) DESC LIMIT 10`).all().map((r) => r.user_id);
+    } catch { users = []; }
     for (const u of users) {
       let items = [];
-      try {
-        items = [
-          ...store.continueList(u, 10), ...store.nextUpList(u, 12), ...store.newInLibrary(u, 12),
-          ...store.recentlyFinished(u, 12), ...store.startNewSeries(u, 12),
-        ];
-      } catch { continue; }
+      try { items = [...store.continueList(u, 10), ...store.nextUpList(u, 12), ...store.recentlyFinished(u, 12)]; }
+      catch { continue; }
       for (const it of items) {
         const id = Number(it?.issue_id);
         if (!id || seen.has(id)) continue;
@@ -134,6 +138,7 @@ export default function register(api) {
         const file = it.file_path || issueRow(id)?.file_path;
         if (file) files.push(file);
       }
+      await new Promise((r) => setTimeout(r, 100));
     }
     return files;
   }
@@ -143,8 +148,9 @@ export default function register(api) {
     const newest = cat.prepare(`SELECT lf.path FROM library_files lf
       WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL AND lf.path IS NOT NULL
       ORDER BY lf.scanned_at DESC, lf.mtime DESC LIMIT 3000`).all().map((r) => r.path);
-    const rows = [...new Set([...shelfFiles(), ...newest])].map((path) => ({ path }));
+    const rows = [...new Set([...(await shelfFiles()), ...newest])].map((path) => ({ path }));
     let rendered = 0, skipped = 0, failed = 0;
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const { path: file } of rows) {
       if (rendered >= limit) break;
       for (const webp of [true, false]) {
@@ -152,6 +158,10 @@ export default function register(api) {
           if (await pageVariantCached(file, 0, 200, { webp })) { skipped++; continue; }
           await pageBufferResized(file, 0, 200, { webp });
           rendered++;
+          // Background work: leave the CPU and the storage to whoever is
+          // using the app. A cover every quarter second is plenty — the
+          // whole boot batch still lands within a minute.
+          await pause(250);
         } catch { failed++; }
       }
     }

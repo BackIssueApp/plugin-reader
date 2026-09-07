@@ -8,6 +8,16 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-09-07
+
+### Fixed
+
+- **Cover pre-render stays in the background.** At boot it ran five shelf
+  queries for every user before rendering, which on an install with many
+  users stalled the server for over ten seconds, then rendered at full
+  speed. It now looks at the ten most recently active readers, one at a
+  time, and renders a cover every quarter second.
+
 ## [1.8.1] — 2026-09-07
 
 ### Fixed
