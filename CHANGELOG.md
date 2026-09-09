@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-09-08
+
 ### Added
 
 - Reading-list progress endpoint (`GET /api/reader/lists-progress`): how far
