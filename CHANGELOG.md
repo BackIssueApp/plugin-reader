@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.8.4] — 2026-09-09
+
 ### Added
 
 - `GET /api/reader/state` reports `updatedAt` per issue — when it was last read.
