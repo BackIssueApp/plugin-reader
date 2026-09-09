@@ -8,6 +8,11 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /api/reader/state` reports `updatedAt` per issue — when it was last read.
+  The mobile apps date the read rows on an arc's spine with it.
+
 ## [1.8.3] — 2026-09-08
 
 ### Added

@@ -353,8 +353,12 @@ export function openReaderStore(dbPath) {
 
     /** One user's read-state for every issue they've touched (row badges). */
     allStates(userId) {
-      const rows = db.prepare('SELECT issue_id, page, pages, completed FROM reader_progress WHERE user_id = ?').all(userId);
-      return Object.fromEntries(rows.map((r) => [r.issue_id, { page: r.page, pages: r.pages, completed: r.completed }]));
+      const rows = db.prepare('SELECT issue_id, page, pages, completed, updated_at FROM reader_progress WHERE user_id = ?').all(userId);
+      // updatedAt is when this issue was last read — the arcs spine dates its
+      // read rows with it. Null on rows written before it was recorded.
+      return Object.fromEntries(rows.map((r) => [
+        r.issue_id, { page: r.page, pages: r.pages, completed: r.completed, updatedAt: r.updated_at || null },
+      ]));
     },
     /** Read-through of every reading list this user may see, as the arcs index
      *  needs it: how far through each one they are, and which issue they'd
