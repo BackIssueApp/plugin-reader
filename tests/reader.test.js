@@ -479,3 +479,65 @@ test('resized variants persist on disk and are served from there after the memor
     assert.equal(await pageVariantCached(file, 0, 0), false);
   } finally { setPageCacheDir(null); rm(); }
 });
+
+test('listsProgress: per-arc counts and the next issue to open', () => {
+  const { p: dir, rm } = tmpdir();
+  try {
+    const dbPath = path.join(dir, 'catalog.db');
+    const seed = new Database(dbPath);
+    seed.exec(`
+      CREATE TABLE cv_series (comicvine_id INTEGER PRIMARY KEY, name TEXT);
+      CREATE TABLE cv_issues (comicvine_id INTEGER PRIMARY KEY, cv_series_id INTEGER, name TEXT, issue_number TEXT, image_url TEXT);
+      CREATE TABLE library_files (path TEXT PRIMARY KEY, cv_issue_id INTEGER, series_id INTEGER, valid INTEGER);
+      CREATE TABLE reading_lists (id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT, public INTEGER DEFAULT 0);
+      CREATE TABLE reading_list_items (list_id INTEGER, position INTEGER, cv_issue_id INTEGER);
+      INSERT INTO cv_series VALUES (900, 'Saga');
+      INSERT INTO cv_issues VALUES (10, 900, 'One', '1', 'a.jpg');
+      INSERT INTO cv_issues VALUES (11, 900, 'Two', '2', 'b.jpg');
+      INSERT INTO cv_issues VALUES (12, 900, 'Three', '3', 'c.jpg');
+      INSERT INTO cv_issues VALUES (13, 900, 'Four', '4', 'd.jpg');
+      -- issue 13 is in the arc but we own no file for it: a gap, never "next"
+      INSERT INTO library_files VALUES ('/lib/1.cbz', 10, 1, 1);
+      INSERT INTO library_files VALUES ('/lib/2.cbz', 11, 1, 1);
+      INSERT INTO library_files VALUES ('/lib/3.cbz', 12, 1, 1);
+      INSERT INTO reading_lists VALUES (1, 7, 'The Long Night', 0);
+      INSERT INTO reading_lists VALUES (2, 99, 'Someone else private', 0);
+      INSERT INTO reading_list_items VALUES (1, 0, 10), (1, 1, 11), (1, 2, 13), (1, 3, 12);
+      INSERT INTO reading_list_items VALUES (2, 0, 10);
+    `);
+    seed.close();
+
+    const store = openReaderStore(dbPath);
+    const U = 7;
+
+    // Nothing read yet: the first owned issue is next.
+    let arcs = store.listsProgress(U);
+    assert.equal(arcs['1'].total, 4);
+    assert.equal(arcs['1'].read, 0);
+    assert.equal(arcs['1'].name, 'The Long Night');
+    assert.equal(arcs['1'].next.cv_issue_id, 10);
+    assert.equal(arcs['2'], undefined, "another user's private list stays hidden");
+
+    // Finish the first, start the second: next is the one in progress.
+    store.saveProgress(U, 10, { page: 20, pages: 20, completed: true });
+    store.saveProgress(U, 11, { page: 3, pages: 22, completed: false });
+    arcs = store.listsProgress(U);
+    assert.equal(arcs['1'].read, 1);
+    assert.equal(arcs['1'].inProgress, 1);
+    assert.equal(arcs['1'].next.cv_issue_id, 11);
+    assert.equal(arcs['1'].next.page, 3, 'resume point rides along');
+    assert.ok(arcs['1'].lastReadAt, 'the arc knows when it was last touched');
+
+    // Finish it: position 2 is the unowned gap, so next skips to position 3.
+    store.saveProgress(U, 11, { page: 21, pages: 22, completed: true });
+    arcs = store.listsProgress(U);
+    assert.equal(arcs['1'].next.cv_issue_id, 12, 'a gap is stepped over, not offered');
+
+    // Everything owned is read: no next, and the arc reads as finished.
+    store.saveProgress(U, 12, { page: 9, pages: 10, completed: true });
+    arcs = store.listsProgress(U);
+    assert.equal(arcs['1'].read, 3);
+    assert.equal(arcs['1'].next, null);
+    store.close();
+  } finally { rm(); }
+});

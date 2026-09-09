@@ -356,6 +356,60 @@ export function openReaderStore(dbPath) {
       const rows = db.prepare('SELECT issue_id, page, pages, completed FROM reader_progress WHERE user_id = ?').all(userId);
       return Object.fromEntries(rows.map((r) => [r.issue_id, { page: r.page, pages: r.pages, completed: r.completed }]));
     },
+    /** Read-through of every reading list this user may see, as the arcs index
+     *  needs it: how far through each one they are, and which issue they'd
+     *  open next. Core owns the lists and must not read progress itself, so the
+     *  join lives here — both tables happen to sit in the same file.
+     *
+     *  `next` is the first item in arc order that is owned and unfinished: the
+     *  arc's current position, the "continue" target, and the yellow node. An
+     *  arc with no such item (all read, or every remaining one missing) simply
+     *  has no next. */
+    listsProgress(userId) {
+      const visible = 'li.list_id IN (SELECT id FROM reading_lists WHERE user_id = ? OR public = 1)';
+      const totals = db.prepare(`
+        SELECT li.list_id,
+               (SELECT name FROM reading_lists WHERE id = li.list_id) AS name,
+               COUNT(*) AS total,
+               SUM(CASE WHEN p.completed = 1 THEN 1 ELSE 0 END) AS read,
+               SUM(CASE WHEN COALESCE(p.completed, 0) = 0 AND COALESCE(p.page, 0) > 0 THEN 1 ELSE 0 END) AS in_progress,
+               MAX(p.updated_at) AS last_read_at
+          FROM reading_list_items li
+          LEFT JOIN reader_progress p ON p.issue_id = li.cv_issue_id AND p.user_id = ?
+         WHERE ${visible}
+         GROUP BY li.list_id
+      `).all(userId, userId);
+
+      // Candidates for "next", in arc order; the first row per list wins.
+      const upcoming = db.prepare(`
+        SELECT li.list_id, li.position, li.cv_issue_id,
+               ci.issue_number, ci.name AS title, ci.image_url,
+               cs.name AS series,
+               COALESCE(p.page, 0) AS page, COALESCE(p.pages, 0) AS pages
+          FROM reading_list_items li
+          LEFT JOIN cv_issues ci ON ci.comicvine_id = li.cv_issue_id
+          LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+          LEFT JOIN reader_progress p ON p.issue_id = li.cv_issue_id AND p.user_id = ?
+         WHERE ${visible}
+           AND COALESCE(p.completed, 0) = 0
+           AND EXISTS (SELECT 1 FROM library_files lf
+                        WHERE lf.cv_issue_id = li.cv_issue_id AND lf.valid = 1)
+         ORDER BY li.list_id, li.position
+      `).all(userId, userId);
+
+      const out = {};
+      for (const t of totals) {
+        out[t.list_id] = {
+          name: t.name || '', read: t.read || 0, total: t.total || 0, inProgress: t.in_progress || 0,
+          lastReadAt: t.last_read_at || null, next: null,
+        };
+      }
+      for (const row of upcoming) {
+        const entry = out[row.list_id];
+        if (entry && !entry.next) entry.next = row;
+      }
+      return out;
+    },
     /** Explicitly set read/unread (bypasses the completed latch — this is the
      *  manual override). Marking unread also resets the resume point. */
     setRead(userId, issueId, read) {

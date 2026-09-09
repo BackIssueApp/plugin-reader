@@ -8,6 +8,13 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+
+- Reading-list progress endpoint (`GET /api/reader/lists-progress`): how far
+  through each list you are, and the next issue to open. Core owns the lists
+  but never reads reader tables, so the join lives here. Drives the mobile
+  apps' arcs screens.
+
 ## [1.8.2] — 2026-09-07
 
 ### Fixed

@@ -680,6 +680,22 @@ export default function register(api) {
     res.json({ states: store.allStates(uid(req)) });
   }, { access: CAN_READ });
 
+  // GET /api/reader/lists-progress — how far through each reading list this
+  // user is, plus the issue they'd open next. Core owns lists but never reads
+  // reader tables, so the join belongs here. Absent plugin = the clients fall
+  // back to plain owned/total counts.
+  api.registerRoute('get', '/api/reader/lists-progress', (req, res) => {
+    const lists = store.listsProgress(uid(req));
+    // `next` carries a title, so a restricted issue must not surface through it
+    // for a role that can't see restricted content — the counts are harmless.
+    if (!canRestricted(req)) {
+      for (const entry of Object.values(lists)) {
+        if (entry.next && issueRestricted(entry.next.cv_issue_id)) entry.next = null;
+      }
+    }
+    res.json({ lists });
+  }, { access: CAN_READ });
+
   // GET/POST /api/reader/series/:id/prefs — per-series reading profile, so a
   // manga series remembers RTL+webtoon while US books stay single/LTR.
   api.registerRoute('get', '/api/reader/series/:id/prefs', (req, res) => {
