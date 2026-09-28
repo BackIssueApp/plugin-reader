@@ -664,6 +664,16 @@ export default function register(api) {
   api.registerRoute('get', '/api/reader/later', (req, res) => {
     res.json({ items: hideRestricted(req, store.laterList(uid(req))) });
   }, { access: CAN_READ });
+  // POST /api/reader/later-bulk { ids: [cvIssueId], on } — the whole series,
+  // or the checked issues. Mirrors read-bulk, so both bulk actions on the
+  // series header behave the same way.
+  api.registerRoute('post', '/api/reader/later-bulk', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+    if (!ids.length) return res.status(400).json({ error: 'ids required' });
+    const on = !!(req.body || {}).on;
+    for (const id of ids) store.setLater(uid(req), id, on);
+    res.json({ done: ids.length, on });
+  }, { access: CAN_READ });
   api.registerRoute('post', '/api/reader/later/:id', (req, res) => {
     res.json({ later: store.setLater(uid(req), Number(req.params.id), !!(req.body || {}).on) });
   }, { access: CAN_READ });

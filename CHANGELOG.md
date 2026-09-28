@@ -8,6 +8,23 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+
+- **Read later for a whole series** (#7). The series header gains a **Read
+  later (N)** action beside Mark read. With issues checked it takes exactly
+  those; with nothing checked it takes everything you own and have not
+  finished, so a series you just added goes on the shelf in one click without
+  dragging along issues you have already read. Once they are all on the shelf
+  the action becomes **Remove from Read later**, which is also how you clear a
+  series you have finished.
+
+### Fixed
+
+- The bulk **Mark read** and **Mark unread** actions ignored the issue
+  checkboxes and always acted on the whole series. They looked up the
+  selection on the wrong object, so it read as empty every time. Both now
+  respect what is checked, as their tooltips always claimed.
+
 ## [1.8.4] — 2026-09-09
 
 ### Added

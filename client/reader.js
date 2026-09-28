@@ -2674,7 +2674,7 @@
     // Bulk read-state: acts on the CHECKED issues (core exposes the selection
     // via BackIssue.selectedIssues), or the whole series when nothing is checked.
     const bulkMark = async (issues, read) => {
-      const sel = (window.BackIssue?.selectedIssues?.() || []);
+      const sel = (api.selectedIssues?.() || []);
       const rows = readableRows(issues);
       const ids = sel.length ? sel : rows.map((x) => x.cv_issue_id);
       if (!ids.length) return;
@@ -2702,6 +2702,54 @@
       label: () => `${hicon('rotate-ccw', null, '↺')} Mark unread`,
       title: 'Clear read progress for the checked issues (nothing checked = the whole series)',
       run: (s, issues) => bulkMark(issues, false),
+    });
+    // Read later for a whole series, the bulk sibling of the per-issue pin.
+    // With issues checked it takes exactly those. With nothing checked it takes
+    // the ones still worth reading — adding issues you have already finished
+    // would just clutter the shelf you are building.
+    const laterCandidates = (issues) => {
+      const sel = (api.selectedIssues?.() || []);
+      const readable = readableRows(issues);
+      if (sel.length) return readable.filter((x) => sel.includes(x.cv_issue_id)).map((x) => x.cv_issue_id);
+      const unread = readable.filter((x) => !readStates[x.cv_issue_id]?.completed).map((x) => x.cv_issue_id);
+      if (unread.length) return unread;
+      // Nothing left to read, but some are still pinned: the action becomes
+      // the way to clear them, rather than disappearing and stranding them.
+      return readable.filter((x) => laterSet.has(x.cv_issue_id)).map((x) => x.cv_issue_id);
+    };
+    const bulkLater = async (issues) => {
+      const ids = laterCandidates(issues);
+      if (!ids.length) return;
+      // Already all pinned → the action reads "Remove", so take them off.
+      const on = !ids.every((id) => laterSet.has(id));
+      for (const id of ids) { if (on) laterSet.add(id); else laterSet.delete(id); }
+      api.refreshIssueActions?.();
+      const r = await fetch('/api/reader/later-bulk', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids, on }),
+      }).then((x) => x.json()).catch(() => ({ error: 'unreachable' }));
+      if (r.error) {   // put the optimistic change back
+        for (const id of ids) { if (on) laterSet.delete(id); else laterSet.add(id); }
+        api.refreshIssueActions?.();
+        return;
+      }
+      api.toast?.(on
+        ? `Added ${ids.length} issue${ids.length === 1 ? '' : 's'} to Read later.`
+        : `Removed ${ids.length} issue${ids.length === 1 ? '' : 's'} from Read later.`, 'ok');
+      renderHomeRails();   // the Read later shelf changed
+    };
+    api.registerSeriesAction?.({
+      id: 'reader-later-bulk',
+      when: (s, issues) => laterCandidates(issues).length > 0,
+      label: (s, issues) => {
+        const ids = laterCandidates(issues);
+        const all = ids.length && ids.every((id) => laterSet.has(id));
+        return all
+          ? `${hicon('bookmark', { fill: true }, '📌')} Remove from Read later`
+          : `${hicon('bookmark', null, '📍')} Read later (${ids.length})`;
+      },
+      title: 'Add the checked issues to Read later (nothing checked = everything still unread)',
+      run: (s, issues) => bulkLater(issues),
     });
     api.registerSeriesAction?.({
       id: 'reader-continue',

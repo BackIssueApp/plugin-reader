@@ -318,6 +318,17 @@ test('read-later shelf + global bookmarks: per-user, with issue metadata', () =>
     store.setLater(1, 10, false);
     assert.equal(store.laterList(1).length, 0);
 
+    // bulk read-later: what /api/reader/later-bulk does per id, and that one
+    // user's shelf never touches another's
+    store.setLater(1, 10, true);
+    store.setLater(1, 11, true);
+    assert.equal(store.laterList(1).length, 2, 'both issues on the shelf');
+    assert.equal(store.laterList(2).length, 0, 'still per-user in bulk');
+    for (const id of [10, 11]) store.setLater(1, id, true);
+    assert.equal(store.laterList(1).length, 2, 're-adding is idempotent, not doubled');
+    for (const id of [10, 11]) store.setLater(1, id, false);
+    assert.equal(store.laterList(1).length, 0, 'bulk removal clears the shelf');
+
     // global bookmarks with metadata, per-user
     store.setBookmark(1, 10, 3, true);
     store.setBookmark(1, 11, 0, true);
