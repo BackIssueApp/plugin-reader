@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-28
+
 ### Added
 
 - **Read later for a whole series** (#7). The series header gains a **Read
