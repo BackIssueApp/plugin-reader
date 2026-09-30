@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-09-29
+
 ### Added
 
 - **Finishing an issue inside a reading list offers the rest of the run.** Open
