@@ -8,6 +8,27 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-09-29
+
+### Added
+
+- **The last page of an issue in a run points at the run.** Reading normally,
+  the last page carries a floating **Next issue** button; inside a reading list
+  it carried nothing, so an arc signposted the end of an issue less clearly
+  than an ordinary read did. The button is now there too, labelled **Next in
+  arc**, and it goes where the run says rather than to the next issue of
+  whichever series you happened to be in.
+
+### Fixed
+
+- **Later** hid the end-of-issue card but did not remember doing so, so paging
+  forward again re-asked the same question. It now stands for that issue, and
+  leaves the **Next in arc** button behind so dismissing the prompt does not
+  dismiss the way onward.
+- The arc card could ask what comes next before the finish it was reacting to
+  had been recorded, and get back the issue you had just read — which showed
+  the series' end card instead of the run's. The run now waits for the write.
+
 ## [1.10.0] — 2026-09-29
 
 ### Added

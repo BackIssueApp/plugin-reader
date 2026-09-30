@@ -93,8 +93,12 @@
     let arcId = null;            // reading list id, or null for a plain read
     let arcProg = null;          // the arc's progress as of the last fetch
     let arcDismissed = null;     // issue id the arc card was dismissed for
+    let progressPush = null;     // the in-flight progress write, if any
     let laterSet = new Set();     // cv_issue_ids on the read-later shelf (row action)
     let prewarmed = null;        // { id, manifest } for the next issue
+    // Where the last page's floating button goes: the series' next issue
+    // normally, the run's next when we are reading inside an arc.
+    let nextHop = null;          // { id, arc } or null
     let sw = null;               // service worker registration
     let offlineIssues = new Set();
     let lastFocus = null;
@@ -150,6 +154,7 @@
       // an issue you opened from the library would offer an unrelated arc.
       if (arcId !== listId) { arcId = listId; arcProg = null; }
       arcDismissed = null;
+      nextHop = null;
       let m = prewarmed && prewarmed.id === issueId ? prewarmed.manifest : null;
       prewarmed = null;
       if (!m) {
@@ -468,7 +473,7 @@
 
       els.slider.oninput = () => goTo(Number(els.slider.value));
       overlay.querySelector('.r-thumbs').onclick = () => { settings.thumbs = !settings.thumbs; saveSettings(); syncThumbs(); };
-      els.nextbtn.onclick = () => { if (manifest.next) openReader(manifest.next); };
+      els.nextbtn.onclick = () => { if (nextHop) openReader(nextHop.id, null, nextHop.arc); };
       overlay.querySelector('.reader__panelclose').onclick = () => { if (manifest) els.panel.hidden = true; else closeReader(); };
 
       // Tap zones: normally left=back/right=forward (RTL-flipped); with
@@ -1132,30 +1137,54 @@
       const url = `/api/reader/issue/${manifest.issue.id}/progress`;
       if (!navigator.onLine) return enqueueProgress(url, body); // offline read — replay later
       if (sync && navigator.sendBeacon) {
+        progressPush = null;   // nothing to wait on: the page is going away
         if (!navigator.sendBeacon(url, new Blob([JSON.stringify(body)], { type: 'application/json' }))) enqueueProgress(url, body);
-      } else api.post(url, body).catch(() => enqueueProgress(url, body));
+      } else {
+        // Held so the arc can wait for it: asking what comes next before the
+        // finish has landed gets back the issue you have just read.
+        progressPush = api.post(url, body).catch(() => enqueueProgress(url, body));
+      }
+      return progressPush;
     }
     async function maybeFinish(fromNav = false) {
       const atEnd = page + stepSize() >= manifest.pages;
-      if (!atEnd) { els.next.hidden = true; els.end.hidden = true; return; }
+      if (!atEnd) { els.next.hidden = true; els.end.hidden = true; nextHop = null; return; }
       pushProgress();
       if (fromNav) return showEndCard(); // advancing past the last page
-      // Inside an arc the series' next issue is not what follows, so don't
-      // offer it — the arc card does the offering when the issue finishes.
-      if (arcId) return;
+      // Inside an arc the series' next issue is not what follows — but the run
+      // knows what does, and the last page should say so just as plainly.
+      if (arcId) return offerArcNext();
       if (manifest.next) {
+        nextHop = { id: manifest.next, arc: null };
         els.nextbtn.innerHTML = `Next issue ${icon('arrow-right')}`;
         els.next.hidden = false;
         prewarm();
       }
     }
+
+    /** The last page of an issue read inside an arc: offer the run's next. */
+    async function offerArcNext() {
+      const at = manifest.issue.id;
+      const pr = await loadArcProgress();
+      const nx = pr?.next;
+      // The fetch is slow enough that the reader may have moved on, and a
+      // finished run has nowhere to point.
+      if (!nx || nx.cv_issue_id === at) return;
+      if (!manifest || manifest.issue.id !== at || !arcId) return;
+      nextHop = { id: nx.cv_issue_id, arc: arcId };
+      els.nextbtn.innerHTML = `Next in arc ${icon('arrow-right')}`;
+      els.next.hidden = false;
+      prewarm(nx.cv_issue_id);
+    }
     // Prewarm: fetch the next manifest + its first pages so the hop is instant.
-    async function prewarm() {
-      if (!manifest.next || (prewarmed && prewarmed.id === manifest.next)) return;
+    // Inside an arc the next issue is the run's, not the series', so the id is
+    // a parameter rather than read off the manifest.
+    async function prewarm(id = manifest.next) {
+      if (!id || (prewarmed && prewarmed.id === id)) return;
       try {
-        const nm = await api.get(`/api/reader/issue/${manifest.next}`);
+        const nm = await api.get(`/api/reader/issue/${id}`);
         if (nm && !nm.error) {
-          prewarmed = { id: manifest.next, manifest: nm };
+          prewarmed = { id, manifest: nm };
           for (let n = 0; n < Math.min(3, nm.pages); n++) {
             const i = new Image();
             i.src = `/api/reader/issue/${nm.issue.id}/page/${n}${pageParams(0)}`;
@@ -1169,6 +1198,7 @@
      *  card reflects the issue that was just completed. */
     async function loadArcProgress() {
       if (!arcId) return null;
+      await Promise.resolve(progressPush).catch(() => {});
       try {
         const r = await api.get('/api/reader/lists-progress');
         arcProg = r && !r.error ? (r.lists || {})[String(arcId)] || null : null;
@@ -1190,6 +1220,9 @@
     // ---------- end-of-issue card ----------
     async function showEndCard() {
       if (arcId) {
+        // "Later" was for this issue: don't prompt again, and don't fall
+        // through to the series card, which is the question they didn't ask.
+        if (arcDismissed === manifest.issue.id) return;
         const shown = await showArcEndCard();
         if (shown) return;
         // A finished arc, or one whose remaining issues are all gaps: fall
@@ -1223,11 +1256,19 @@
             </div>
           </div>
         </div>`;
+      nextHop = { id: nx.cv_issue_id, arc: arcId };
+      els.next.hidden = true;     // the card supersedes the floating button
       els.end.hidden = false;
       els.end.querySelector('.e-arcnext').onclick = () => { els.end.hidden = true; openReader(nx.cv_issue_id, null, arcId); };
       // "Later" is per-issue, so it does not silence the card for the rest of
-      // the run — the next issue you finish offers again.
-      els.end.querySelector('.e-later').onclick = () => { arcDismissed = m.issue.id; els.end.hidden = true; };
+      // the run — the next issue you finish offers again. It dismisses the
+      // prompt, not the way onward: the floating button comes back.
+      els.end.querySelector('.e-later').onclick = () => {
+        arcDismissed = m.issue.id;
+        els.end.hidden = true;
+        els.nextbtn.innerHTML = `Next in arc ${icon('arrow-right')}`;
+        els.next.hidden = false;
+      };
       els.end.querySelector('.e-backarc').onclick = () => {
         const id = arcId;
         close();
