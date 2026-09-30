@@ -88,6 +88,11 @@
     let webtoonObserver = null;
     let autoScroll = false, autoScrollRAF = null, autoScrollLast = 0;
     let readStates = {};         // issueId → { page, pages, completed } (row badges)
+    // Reading INSIDE an arc. When set, the arc owns the end of an issue: the
+    // series' own "next" is not offered, because the run decides what follows.
+    let arcId = null;            // reading list id, or null for a plain read
+    let arcProg = null;          // the arc's progress as of the last fetch
+    let arcDismissed = null;     // issue id the arc card was dismissed for
     let laterSet = new Set();     // cv_issue_ids on the read-later shelf (row action)
     let prewarmed = null;        // { id, manifest } for the next issue
     let sw = null;               // service worker registration
@@ -140,7 +145,11 @@
     const stateOf = (issue) => readStates[issue.cv_issue_id];
 
     // ---------- open / close ----------
-    async function openReader(issueId, startPage = null) {
+    async function openReader(issueId, startPage = null, listId = null) {
+      // Opening from anywhere but an arc leaves the run — otherwise finishing
+      // an issue you opened from the library would offer an unrelated arc.
+      if (arcId !== listId) { arcId = listId; arcProg = null; }
+      arcDismissed = null;
       let m = prewarmed && prewarmed.id === issueId ? prewarmed.manifest : null;
       prewarmed = null;
       if (!m) {
@@ -1131,6 +1140,9 @@
       if (!atEnd) { els.next.hidden = true; els.end.hidden = true; return; }
       pushProgress();
       if (fromNav) return showEndCard(); // advancing past the last page
+      // Inside an arc the series' next issue is not what follows, so don't
+      // offer it — the arc card does the offering when the issue finishes.
+      if (arcId) return;
       if (manifest.next) {
         els.nextbtn.innerHTML = `Next issue ${icon('arrow-right')}`;
         els.next.hidden = false;
@@ -1153,8 +1165,81 @@
       } catch { /* prewarm is best-effort */ }
     }
 
+    /** This arc's progress and what comes next, refetched after a finish so the
+     *  card reflects the issue that was just completed. */
+    async function loadArcProgress() {
+      if (!arcId) return null;
+      try {
+        const r = await api.get('/api/reader/lists-progress');
+        arcProg = r && !r.error ? (r.lists || {})[String(arcId)] || null : null;
+      } catch { arcProg = null; }
+      return arcProg;
+    }
+
+    /** One tick per issue — how far through the run you are, at a glance. */
+    function arcTicks(pr) {
+      const total = pr?.total || 0;
+      if (!total) return '';
+      const n = Math.min(total, 40);
+      const lit = Math.round(((pr.read || 0) / total) * n);
+      return `<div class="reader__arcticks">${
+        Array.from({ length: n }, (_, i) => `<span class="reader__arctick${i < lit ? ' is-lit' : ''}"></span>`).join('')
+      }</div>`;
+    }
+
     // ---------- end-of-issue card ----------
-    function showEndCard() {
+    async function showEndCard() {
+      if (arcId) {
+        const shown = await showArcEndCard();
+        if (shown) return;
+        // A finished arc, or one whose remaining issues are all gaps: fall
+        // through to the series card rather than showing a dead one.
+      }
+      showSeriesEndCard();
+    }
+
+    /** "Up next in this arc". Returns false when there is nothing to offer. */
+    async function showArcEndCard() {
+      const m = manifest;
+      const pr = await loadArcProgress();
+      const nx = pr?.next;
+      if (!nx || nx.cv_issue_id === m.issue.id) return false;
+      const finished = `${escapeHtml(m.series.title)} #${escapeHtml(String(m.issue.number ?? '?'))}`;
+      els.end.innerHTML = `
+        <div class="reader__endcard reader__endcard--arc">
+          <img src="/api/reader/issue/${nx.cv_issue_id}/page/0?w=400" alt="" loading="lazy"
+            onerror="this.remove()">
+          <div class="reader__endinfo">
+            <small class="reader__arcdone">${icon('check')} Issue complete · ${finished}</small>
+            ${arcTicks(pr)}
+            <small>${escapeHtml(String(pr.read || 0))} of ${escapeHtml(String(pr.total || 0))} read in this run</small>
+            <b>Up next in this arc</b>
+            <div class="reader__arcnext">${escapeHtml(nx.series || '')} <span>#${escapeHtml(String(nx.issue_number ?? '?'))}</span></div>
+            ${nx.title ? `<small>${escapeHtml(nx.title)}</small>` : ''}
+            <div class="reader__endbtns">
+              <button class="reader__nextbtn e-arcnext">Read now ${icon('arrow-right')}</button>
+              <button class="reader__btn e-later">Later</button>
+              <button class="reader__btn e-backarc">Back to arc</button>
+            </div>
+          </div>
+        </div>`;
+      els.end.hidden = false;
+      els.end.querySelector('.e-arcnext').onclick = () => { els.end.hidden = true; openReader(nx.cv_issue_id, null, arcId); };
+      // "Later" is per-issue, so it does not silence the card for the rest of
+      // the run — the next issue you finish offers again.
+      els.end.querySelector('.e-later').onclick = () => { arcDismissed = m.issue.id; els.end.hidden = true; };
+      els.end.querySelector('.e-backarc').onclick = () => {
+        const id = arcId;
+        close();
+        // api.navigate is newer than this plugin's floor, so fall back to a
+        // plain load on an older core rather than doing nothing.
+        const url = '/lists?list=' + id;
+        if (api.navigate) api.navigate(url); else window.location.href = url;
+      };
+      return true;
+    }
+
+    function showSeriesEndCard() {
       const m = manifest;
       const finished = `You finished ${escapeHtml(m.series.title)} #${escapeHtml(String(m.issue.number ?? '?'))}`;
       let body;
@@ -2625,7 +2710,9 @@
         return 'Read';
       },
       when: (i) => !!i.owned && !i.corrupt && !!i.cv_issue_id,
-      run: (i) => openReader(i.cv_issue_id),
+      // `arc_id` is set by the Lists page so the run can carry on at the end
+      // of the issue; every other caller passes nothing and reads normally.
+      run: (i) => openReader(i.cv_issue_id, null, i.arc_id ?? null),
     });
 
     // Manual read/unread toggle — backfill series you read years ago without

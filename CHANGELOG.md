@@ -8,6 +8,18 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+
+- **Finishing an issue inside a reading list offers the rest of the run.** Open
+  an issue from a list and the end-of-issue card is about that run rather than
+  the series: it confirms the issue you just finished, shows how far through
+  the run you are, names the next issue in the list order, and offers **Read
+  now**, **Later** or **Back to arc**. A crossover therefore carries on across
+  titles the way the list orders them, instead of dropping you into the next
+  issue of whichever series you happened to be in. **Later** applies to that
+  issue only, so the next one you finish offers again. Opening the same issue
+  from anywhere else reads exactly as before.
+
 ## [1.9.0] — 2026-09-28
 
 ### Added

@@ -227,6 +227,16 @@ html:has(.reader.is-open) { overscroll-behavior-y: none; }
 .reader__endinfo b { font-size: 16px; }
 .reader__endbtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 
+/* Finishing an issue inside an arc: the run, not the series, says what next. */
+.reader__endcard--arc { display: flex; gap: 16px; align-items: flex-start; }
+.reader__arcdone { display: flex; align-items: center; gap: 6px; color: #5fd38a !important; }
+.reader__arcdone svg { width: 14px; height: 14px; }
+.reader__arcticks { display: flex; gap: 2px; margin: 2px 0; }
+.reader__arctick { flex: 1; min-width: 2px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.14); }
+.reader__arctick.is-lit { background: #5fd38a; }
+.reader__arcnext { font-size: 15px; font-weight: 600; }
+.reader__arcnext span { color: #f2b705; }
+
 /* ---- issue info overlay ---- */
 .reader__infocard {
   position: absolute; inset: 0; z-index: 9; background: rgba(0, 0, 0, 0.55);
