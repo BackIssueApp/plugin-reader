@@ -1271,7 +1271,10 @@
       };
       els.end.querySelector('.e-backarc').onclick = () => {
         const id = arcId;
-        close();
+        els.end.hidden = true;
+        // Navigating away supersedes the reader's own history entry, the same
+        // way "go to series" does, so the close must not also run history.back.
+        closeReader({ keepHistory: true });
         // api.navigate is newer than this plugin's floor, so fall back to a
         // plain load on an older core rather than doing nothing.
         const url = '/lists?list=' + id;

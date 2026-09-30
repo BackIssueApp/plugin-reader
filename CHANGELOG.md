@@ -8,6 +8,14 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-09-29
+
+### Fixed
+
+- **Back to arc** left the comic open. It called the wrong close, which
+  quietly resolved to the browser's own `window.close` and did nothing, so
+  the list loaded behind a reader that was still covering it.
+
 ## [1.10.1] — 2026-09-29
 
 ### Added
