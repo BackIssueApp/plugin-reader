@@ -112,7 +112,13 @@
       if (settings.trim) q.push('trim=1');
       return q.length ? `?${q.join('&')}` : '';
     }
-    const pageUrl = (n, w) => `/api/reader/issue/${manifest.issue.id}/page/${n}${pageParams(w)}`;
+    const pageUrl = (n, w) => {
+      // `v` fingerprints the file (mtime+size); carrying it on the URL means a
+      // replaced comic gets a fresh URL, so the browser never serves the cached
+      // pages of the old file.
+      const base = `/api/reader/issue/${manifest.issue.id}/page/${n}${pageParams(w)}`;
+      return manifest.v ? base + (base.includes('?') ? '&' : '?') + `v=${manifest.v}` : base;
+    };
 
     // ---------- offline-safe progress queue ----------
     // Progress POSTs made while offline (reading a downloaded issue) land here
@@ -1187,7 +1193,8 @@
           prewarmed = { id, manifest: nm };
           for (let n = 0; n < Math.min(3, nm.pages); n++) {
             const i = new Image();
-            i.src = `/api/reader/issue/${nm.issue.id}/page/${n}${pageParams(0)}`;
+            const u = `/api/reader/issue/${nm.issue.id}/page/${n}${pageParams(0)}`;
+            i.src = nm.v ? u + (u.includes('?') ? '&' : '?') + `v=${nm.v}` : u;
             i.decode?.().catch(() => {});
           }
         }

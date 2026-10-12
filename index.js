@@ -228,6 +228,14 @@ export default function register(api) {
       FROM cv_issues ci LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
      WHERE ci.comicvine_id = ?`).get(cvId);
 
+  // A short fingerprint of the file's current bytes (mtime + size). It rides the
+  // page URL and the ETag, so replacing a comic changes both — the browser (and
+  // any proxy) fetch the new file instead of serving the cached old one.
+  const fileVersion = (p) => {
+    try { const st = fs.statSync(p); return Math.round(st.mtimeMs).toString(36) + '-' + st.size.toString(36); }
+    catch { return '0'; }
+  };
+
   // CV metadata for the in-reader info overlay.
   function issueInfo(cvId) {
     const row = cat.prepare(
@@ -277,6 +285,7 @@ export default function register(api) {
         issue: { id: issue.id, number: issue.issue_number, title: issue.title },
         series: { id: issue.series_id, title: issue.series_title },
         pages: pages.length,
+        v: fileVersion(issue.file_path),   // page-URL cache-buster; changes when the file is replaced
         prev, next,
         progress: store.progress(uid(req), issue.id),
         bookmarks: store.bookmarks(uid(req), issue.id),
@@ -300,7 +309,7 @@ export default function register(api) {
       const w = Number(req.query.w) | 0;
       const trim = req.query.trim === '1';
       const webp = (w || trim) && /image\/webp/.test(req.headers.accept || '');
-      const etag = `"r${issue.id}-${n}-${w}-${trim ? 1 : 0}-${webp ? 1 : 0}"`;
+      const etag = `"r${issue.id}-${n}-${w}-${trim ? 1 : 0}-${webp ? 1 : 0}-${fileVersion(issue.file_path)}"`;
       res.set('Vary', 'Accept');
       if (req.headers['if-none-match'] === etag) return res.status(304).end();
       const { buffer, contentType } = await pageBufferResized(issue.file_path, n, w, { webp, trim });

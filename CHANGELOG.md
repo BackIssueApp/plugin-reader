@@ -8,6 +8,16 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.10.3] — 2026-10-12
+
+### Fixed
+
+- **A replaced comic no longer shows the old pages.** Page images were cached
+  by the browser for a day under a URL that didn't change when the file did, so
+  re-downloading or replacing a comic kept serving the previous file's pages
+  until the cache expired. The page URL (and its ETag) now carry a fingerprint
+  of the file, so a replacement is picked up immediately.
+
 ## [1.10.2] — 2026-09-29
 
 ### Fixed
