@@ -330,5 +330,31 @@
     "titleOn": "Incognito reading is ON — progress, history, and stats are not being recorded. Click to turn off.",
     "titleOff": "Incognito reading — click to read without recording progress, history, or stats.",
     "toggle": "Toggle incognito reading"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Feature-rich in-browser comic reader: paged/double/webtoon modes, progress and resume, bookmarks, offline reading, per-series profiles, home reading shelves"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Read comics",
+          "description": "Open comics in the browser reader and keep reading history"
+        },
+        "panels": {
+          "edit": {
+            "label": "Edit panel layouts",
+            "description": "Correct guided-view panel boxes; edits apply server-wide for the file"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Pre-render issue covers"
+      }
+    }
   }
 }

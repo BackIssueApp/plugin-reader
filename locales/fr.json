@@ -330,5 +330,31 @@
     "titleOn": "La lecture incognito est ACTIVÉE — progression, historique et statistiques ne sont pas enregistrés. Cliquez pour désactiver.",
     "titleOff": "Lecture incognito — cliquez pour lire sans enregistrer la progression, l’historique ni les statistiques.",
     "toggle": "Activer/désactiver la lecture incognito"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Lecteur de comics complet dans le navigateur : modes page / double page / webtoon, progression et reprise, signets, lecture hors ligne, profils par série, étagères de lecture sur l’accueil"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Lire les comics",
+          "description": "Ouvrir les comics dans le lecteur du navigateur et conserver l’historique de lecture"
+        },
+        "panels": {
+          "edit": {
+            "label": "Modifier les découpages de cases",
+            "description": "Corriger les cadres de cases de la lecture guidée ; les modifications valent pour tout le serveur pour ce fichier"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Pré-générer les couvertures des numéros"
+      }
+    }
   }
 }

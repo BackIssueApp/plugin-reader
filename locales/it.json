@@ -330,5 +330,31 @@
     "titleOn": "La lettura in incognito è ATTIVA — progressi, cronologia e statistiche non vengono registrati. Fai clic per disattivarla.",
     "titleOff": "Lettura in incognito — fai clic per leggere senza registrare progressi, cronologia o statistiche.",
     "toggle": "Attiva/disattiva la lettura in incognito"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Lettore di fumetti completo nel browser: modalità pagina, doppia pagina e webtoon, progressi e ripresa, segnalibri, lettura offline, profili per serie, scaffali di lettura nella home"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Leggere i fumetti",
+          "description": "Aprire i fumetti nel lettore del browser e conservare la cronologia di lettura"
+        },
+        "panels": {
+          "edit": {
+            "label": "Modificare la disposizione delle vignette",
+            "description": "Correggere i riquadri delle vignette della vista guidata; le modifiche valgono per tutto il server per quel file"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Pre-renderizza le copertine degli albi"
+      }
+    }
   }
 }

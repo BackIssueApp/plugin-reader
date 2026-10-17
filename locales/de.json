@@ -330,5 +330,31 @@
     "titleOn": "Inkognito-Lesen ist AN — Fortschritt, Verlauf und Statistiken werden nicht aufgezeichnet. Zum Ausschalten klicken.",
     "titleOff": "Inkognito-Lesen — klicken, um ohne Aufzeichnung von Fortschritt, Verlauf und Statistiken zu lesen.",
     "toggle": "Inkognito-Lesen umschalten"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Umfangreicher Comic-Reader im Browser: Einzel-/Doppelseiten-/Webtoon-Modus, Fortschritt und Fortsetzen, Lesezeichen, Offline-Lesen, Profile pro Reihe, Leseregale auf der Startseite"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Comics lesen",
+          "description": "Comics im Browser-Reader öffnen und den Leseverlauf behalten"
+        },
+        "panels": {
+          "edit": {
+            "label": "Panel-Layouts bearbeiten",
+            "description": "Panel-Rahmen der geführten Ansicht korrigieren; Änderungen gelten serverweit für die Datei"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Heft-Cover vorab rendern"
+      }
+    }
   }
 }

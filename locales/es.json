@@ -330,5 +330,31 @@
     "titleOn": "La lectura de incógnito está ACTIVADA — no se registran progreso, historial ni estadísticas. Haz clic para desactivarla.",
     "titleOff": "Lectura de incógnito — haz clic para leer sin registrar progreso, historial ni estadísticas.",
     "toggle": "Alternar la lectura de incógnito"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Lector de cómics completo en el navegador: modos página, doble página y webtoon, progreso y reanudación, marcadores, lectura sin conexión, perfiles por serie y estantes de lectura en inicio"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Leer cómics",
+          "description": "Abrir cómics en el lector del navegador y conservar el historial de lectura"
+        },
+        "panels": {
+          "edit": {
+            "label": "Editar la disposición de viñetas",
+            "description": "Corregir los recuadros de viñetas de la vista guiada; los cambios se aplican en todo el servidor para ese archivo"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Prerenderizar las portadas de los números"
+      }
+    }
   }
 }

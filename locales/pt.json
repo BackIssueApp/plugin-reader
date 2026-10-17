@@ -330,5 +330,31 @@
     "titleOn": "A leitura em incógnito está LIGADA — progresso, histórico e estatísticas não estão a ser registados. Clique para desligar.",
     "titleOff": "Leitura em incógnito — clique para ler sem registar progresso, histórico nem estatísticas.",
     "toggle": "Alternar a leitura em incógnito"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Leitor de banda desenhada completo no browser: modos página, página dupla e webtoon, progresso e retomar, marcadores, leitura offline, perfis por série, prateleiras de leitura no início"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Ler banda desenhada",
+          "description": "Abrir banda desenhada no leitor do browser e guardar o histórico de leitura"
+        },
+        "panels": {
+          "edit": {
+            "label": "Editar a disposição das vinhetas",
+            "description": "Corrigir as caixas das vinhetas da leitura guiada; as alterações aplicam-se a todo o servidor para o ficheiro"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Pré-gerar as capas das edições"
+      }
+    }
   }
 }

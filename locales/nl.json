@@ -330,5 +330,31 @@
     "titleOn": "Incognito lezen staat AAN — voortgang, geschiedenis en statistieken worden niet bijgehouden. Klik om uit te zetten.",
     "titleOff": "Incognito lezen — klik om te lezen zonder voortgang, geschiedenis of statistieken bij te houden.",
     "toggle": "Incognito lezen aan/uit"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Uitgebreide stripreader in de browser: pagina-, dubbelpagina- en webtoonmodus, voortgang en hervatten, bladwijzers, offline lezen, profielen per reeks, leesplanken op de startpagina"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Strips lezen",
+          "description": "Strips openen in de browserreader en de leesgeschiedenis bewaren"
+        },
+        "panels": {
+          "edit": {
+            "label": "Panelindelingen bewerken",
+            "description": "Panelkaders van de begeleide weergave corrigeren; wijzigingen gelden serverbreed voor het bestand"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Covers van nummers vooraf renderen"
+      }
+    }
   }
 }
