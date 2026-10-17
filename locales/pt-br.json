@@ -1,0 +1,360 @@
+{
+  "couldNotOpen": "Não foi possível abrir esta edição",
+  "ariaReader": "Leitor de quadrinhos",
+  "top": {
+    "closeTitle": "Fechar (Esc)",
+    "closeAria": "Fechar o leitor",
+    "modeTitle": "Modo de leitura (d/w)",
+    "mode": "Modo de leitura",
+    "rtlTitle": "Sentido de leitura (m)",
+    "rtl": "Sentido de leitura",
+    "fitTitle": "Ajuste (h/v/o)",
+    "fit": "Modo de ajuste",
+    "guidedTitle": "Vista guiada por vinhetas (g)",
+    "guided": "Vista guiada por vinhetas",
+    "zoomOutTitle": "Reduzir (-)",
+    "zoomOut": "Reduzir",
+    "zoomInTitle": "Ampliar (+)",
+    "zoomIn": "Ampliar",
+    "rotateTitle": "Rodar a página (r)",
+    "rotate": "Rodar a página",
+    "bookmarkTitle": "Marcar a página (b)",
+    "bookmark": "Marcar a página",
+    "infoTitle": "Informação da edição (i)",
+    "info": "Informação da edição",
+    "displaySettings": "Configurações de visualização",
+    "fullscreenTitle": "Tela cheia (f)",
+    "fullscreen": "Tela cheia",
+    "thumbsTitle": "Miniaturas (t)",
+    "thumbs": "Miniaturas"
+  },
+  "readLater": "Ler mais tarde",
+  "offline": {
+    "download": "Baixar para ler offline",
+    "removed": "Cópia offline removida",
+    "available": "Disponível offline ✓",
+    "remove": "Remover a cópia offline",
+    "initializing": "O suporte offline está iniciando — tente de novo daqui a um instante"
+  },
+  "settings": {
+    "brightness": "Brilho",
+    "background": "Fundo",
+    "black": "Preto",
+    "blackBg": "Fundo preto",
+    "gray": "Cinzento",
+    "grayBg": "Fundo cinzento",
+    "white": "Branco",
+    "whiteBg": "Fundo branco",
+    "colourFilter": "Filtro de cor",
+    "filterNormal": "Normal",
+    "invertTitle": "Inverter — descansa a vista à noite e em e-ink",
+    "filterInvert": "Inverter",
+    "filterSepia": "Sépia",
+    "incognitoTitle": "Ler sem registrar progresso, histórico nem estatísticas",
+    "incognito": "Incógnito (não registrar)",
+    "autoSpeedTitle": "Velocidade do deslocamento automático no modo webtoon — pressione s para iniciar/parar",
+    "autoSpeed": "Velocidade do deslocamento automático",
+    "splitWide": "Dividir páginas largas",
+    "offsetTitle": "Corrige livros cujas páginas duplas estão desfasadas uma página (página de salva)",
+    "offsetSpreads": "Desfasar páginas duplas (o)",
+    "dataSaverTitle": "Servir páginas reduzidas — muito menos dados no celular/tablet",
+    "dataSaver": "Poupança de dados",
+    "trimTitle": "Aparar as margens brancas da digitalização para as páginas preencherem mais a tela",
+    "trim": "Aparar margens",
+    "tapBothTitle": "Tocar em qualquer das margens avança (recuar com teclas/deslizar)",
+    "tapBoth": "Ambas as margens = avançar",
+    "hintsTitle": "Mostrar a ajuda de gestos e atalhos (?)",
+    "hintsBtn": "? Atalhos e gestos"
+  },
+  "bookmarks": "Marcadores",
+  "page": "Página",
+  "continueReading": "Continuar a ler",
+  "closeList": "Fechar a lista",
+  "pageN": "Página {n}",
+  "pageFailed": "Não foi possível carregar a página {n}",
+  "retry": "Tentar de novo",
+  "autoScroll": {
+    "webtoonOnly": "O deslocamento automático funciona no modo webtoon (w)",
+    "on": "Deslocamento automático {speed} px/s — s para parar"
+  },
+  "guided": {
+    "on": "Vista guiada — uma vinheta de cada vez (g para sair)",
+    "off": "Vista guiada desligada",
+    "noPanels": "Nenhuma vinheta detectada aqui — página inteira",
+    "detectingProgress": "Detectando vinhetas… {done}/{total} páginas",
+    "detecting": "Detectando vinhetas…"
+  },
+  "spreadsShifted": "Páginas duplas desfasadas uma página",
+  "spreadOffsetOff": "Desfasamento de páginas duplas desligado",
+  "rotated": "Rodada {deg}°",
+  "rotationReset": "Rotação reposta",
+  "goToSeries": "Ir para a série",
+  "bookmarkPage": "Marcador — página {n}",
+  "removeFromLater": "Remover de Ler mais tarde",
+  "addedLater": "Adicionado a Ler mais tarde",
+  "removedLater": "Removido de Ler mais tarde",
+  "noBookmarksYet": "Ainda nenhum — pressione b em uma página.",
+  "pageAbbrev": "p. {n}",
+  "nextIssue": "Edição seguinte",
+  "nextInArc": "Seguinte no arco",
+  "arc": {
+    "issueComplete": "Edição concluída · {issue}",
+    "readInRun": "{read} de {total} lidas nesta sequência",
+    "upNext": "Seguindo neste arco",
+    "readNow": "Ler agora",
+    "later": "Mais tarde",
+    "backToArc": "Voltar ao arco"
+  },
+  "end": {
+    "youFinished": "Terminou {issue}",
+    "upNext": "Seguindo",
+    "reread": "Reler",
+    "backToSeries": "Voltar à série",
+    "endOfSeries": "Fim da série"
+  },
+  "info": {
+    "close": "Fechar a informação",
+    "inStores": "Nas lojas a {date}",
+    "coverDate": "Data de capa {date}",
+    "credits": "Créditos",
+    "noMetadata": "Ainda não há metadados para esta edição — use «Etiquetar arquivos» na série.",
+    "viewSource": "Ver a página de origem"
+  },
+  "hints": {
+    "forward": "avançar",
+    "back": "recuar",
+    "menu": "menu",
+    "turn": "<b>← →  espaço</b> virar páginas · <b>deslizar</b> também funciona",
+    "modes": "<b>d</b> página dupla · <b>w</b> webtoon · <b>m</b> sentido de leitura",
+    "tools": "<b>o</b> desfasar páginas duplas · <b>b</b> marcador · <b>r</b> rodar · <b>i</b> informação da edição · <b>t</b> miniaturas",
+    "more": "<b>s</b> deslocamento automático (webtoon) · <b>f</b> tela cheia · <b>+ −</b> zoom (também beliscar e duplo toque) · <b>?</b> esta ajuda",
+    "gotIt": "Entendido"
+  },
+  "panels": {
+    "nothingInProgress": "Nada em curso — abra qualquer edição que tenha com o seu botão ▶.",
+    "pageOf": "página {page} de {pages} · {pct}%",
+    "bookmarkedPage": "marcador na p. {n}",
+    "nothingSaved": "Nada salvo — use o botão Ler mais tarde no leitor (ou a ação de linha «Ler mais tarde») para adicionar edições.",
+    "noBookmarks": "Ainda não há marcadores — pressione b em uma página enquanto lê."
+  },
+  "myBookmarks": "Os meus marcadores",
+  "readingStats": "Estatísticas de leitura",
+  "stats": {
+    "noReading": "Ainda não leu nada — as estatísticas crescem à medida que lê.",
+    "nPages": {
+      "one": "{count} página",
+      "other": "{count} páginas"
+    },
+    "pagesRead": "páginas lidas",
+    "issuesFinished": "edições terminadas",
+    "pagesThisMonth": "páginas este mês",
+    "dayStreak": "dias seguidos",
+    "last30": "Últimos 30 dias",
+    "mostFinished": "Mais terminadas"
+  },
+  "shelves": {
+    "hideTitle": "Ocultar esta prateleira — volte a ativá-la em «Prateleiras de leitura»",
+    "hide": "Ocultar {shelf}",
+    "notLinked": "Essa edição não está associada a nenhuma série da sua biblioteca.",
+    "nextUp": "Seguindo",
+    "newInLibrary": "Novidades na sua biblioteca",
+    "recentlyFinished": "Terminadas recentemente",
+    "startNew": "Começar uma série nova"
+  },
+  "profile": {
+    "shelves": "Prateleiras de leitura",
+    "shelvesNote": "Que prateleiras aparecem no topo da sua biblioteca.",
+    "defaults": "Padrões de leitura",
+    "defaultsNote": "Usadas ao abrir uma quadrinhos sem disposição salva própria.",
+    "defaultLayout": "Disposição padrão",
+    "singlePage": "Página única",
+    "doublePage": "Página dupla",
+    "webtoon": "Webtoon (tira contínua)",
+    "pageFit": "Ajuste da página",
+    "fitHeight": "Ajustar à altura",
+    "fitWidth": "Ajustar à largura",
+    "originalSize": "Tamanho original",
+    "eyeComfort": "Conforto visual",
+    "none": "Nenhum",
+    "invertDark": "Inverter (escuro)",
+    "grayscale": "Escala de cinzentos",
+    "countReadAt": "Contar como lida a",
+    "lastPage": "Última página",
+    "rtlManga": "Da direita para a esquerda (manga)",
+    "dataSaver": "Poupança de dados (carregar páginas mais leves)",
+    "trimMargins": "Aparar as margens das páginas",
+    "keepAwake": "Manter a tela ligada durante a leitura",
+    "alwaysIncognito": "Ler sempre em incógnito (não registrar progresso, histórico nem estatísticas)"
+  },
+  "studio": {
+    "issueN": "Edição {id}",
+    "title": "Disposição das vinhetas — {label}",
+    "databaseTitle": "Percorrer todas as disposições de vinhetas salvas na base de dados deste servidor",
+    "database": "Base de dados",
+    "redetectTitle": "Descartar a detecção em cache e voltar a executar o modelo atual",
+    "redetect": "Voltar a detectar",
+    "saveAll": "Salvar tudo",
+    "close": "Fechar",
+    "chipAll": "Todas",
+    "chipNone": "Sem disposição",
+    "chipEdited": "Editadas",
+    "chipUnreviewed": "Por rever",
+    "addTitle": "Adicionar uma vinheta (ou arraste em uma zona vazia da página para a desenhar)",
+    "add": "Adicionar",
+    "deleteTitle": "Excluir a seleção (Del)",
+    "delete": "Excluir",
+    "readEarlier": "Ler antes",
+    "readLater": "Ler depois",
+    "orderTitle": "Toque nas vinhetas por ordem de leitura",
+    "setOrder": "Definir ordem",
+    "snapTitle": "Ajustar os limites aos traços desenhados",
+    "snap": "Ajustar",
+    "magnetTitle": "Ajustar automaticamente as vinhetas novas aos limites",
+    "autoSnap": "Ajuste automático",
+    "copyTitle": "Copiar a disposição desta página",
+    "copy": "Copiar",
+    "pasteTitle": "Colar a disposição copiada nesta página",
+    "paste": "Colar",
+    "undoTitle": "Anular (Ctrl+Z)",
+    "undo": "Anular",
+    "redoTitle": "Refazer (Ctrl+Shift+Z)",
+    "redo": "Refazer",
+    "previewTitle": "Reproduzir o percurso guiado desta disposição",
+    "preview": "Pré-visualizar",
+    "reviewTitle": "Percorrer as páginas — Espaço confirma cada disposição",
+    "review": "Rever",
+    "pageModeTitle": "Sem vinhetas — ler como página inteira",
+    "wholePage": "Página inteira",
+    "autoTitle": "Descartar as alterações e voltar à detecção automática",
+    "auto": "Auto",
+    "saveAllN": "Salvar tudo ({count})",
+    "loadingLayout": "Carregando a disposição…",
+    "noFile": "Não há arquivo para esta edição",
+    "detectingProgress": "Detectando vinhetas… {done}/{total}",
+    "hint": "Arraste os cantos para redimensionar · duplo toque liberta os cantos · arraste em uma zona vazia para desenhar uma vinheta",
+    "panelsAbbrev": "{count} v.",
+    "pageWord": "página",
+    "noPagesMatch": "Nenhuma página corresponde",
+    "cornersUnlocked": "Cantos libertados — arraste-os separadamente",
+    "cornersLocked": "Cantos fixos — a vinheta volta a ser um retângulo",
+    "placingCorners": "Colocando cantos — clique para adicionar, clique no primeiro ponto para fechar, Esc cancela",
+    "panelAdded": "Vinheta adicionada",
+    "snapped": "Ajustada aos limites",
+    "orderUpdated": "Ordem de leitura atualizada",
+    "tapOrder": "Toque nas vinhetas por ordem de leitura — {done}/{total}",
+    "reviewProgress": "Revisão — {done}/{total} confirmadas · Espaço confirma, setas saltam, Esc sai",
+    "allReviewed": "Todas as páginas já foram revistas",
+    "fullyReviewed": "Edição totalmente revista",
+    "saveFailedReview": "Não foi possível salvar esta página — não marcada como revista",
+    "revertFailedReview": "Não foi possível reverter esta página — não marcada como revista",
+    "fullPageReads": "Esta página lê-se como página inteira",
+    "previewing": "A pré-visualizar a ordem de leitura — clique para parar",
+    "snappedAll": "Todas as vinhetas ajustadas",
+    "autoSnapOn": "Ajuste automático ativado — as vinhetas novas colam-se aos limites",
+    "autoSnapOff": "Ajuste automático desligado — as vinhetas ficam exatamente onde as desenha",
+    "layoutCopied": "Disposição copiada",
+    "db": {
+      "builtIn": "Integrado",
+      "reviewed": "Revista",
+      "pageMode": "Página inteira",
+      "title": "Base de dados de disposições",
+      "searchPlaceholder": "Procurar série / edição…",
+      "searchAria": "Procurar nas disposições salvas",
+      "loading": "Carregando…",
+      "prev": "Anterior",
+      "next": "Seguinte",
+      "pageN": "página {n}",
+      "nPanels": {
+        "one": "{count} vinheta",
+        "other": "{count} vinhetas"
+      },
+      "pageModeBadge": "página inteira",
+      "noMatch": "Nenhuma disposição salva corresponde",
+      "range": "{from}–{to} de {total}",
+      "loadFailed": "Não foi possível carregar a base de dados de disposições"
+    },
+    "saving": "Salvando…",
+    "pagesFailedSave": {
+      "one": "{count} página não foi salva",
+      "other": "{count} páginas não foram salvas"
+    },
+    "saved": "Salvo",
+    "someFailed": "Algumas alterações às vinhetas não foram salvas",
+    "layoutsSaved": "Disposições das vinhetas salvas",
+    "discardConfirm": "Descartar as alterações às vinhetas por salvar?",
+    "redetectWipeConfirm": "Descartar também as alterações às vinhetas e as revisões salvas desta edição?\n\nOK = apagar tudo e voltar a detectar do zero.\nCancelar = voltar a detectar mantendo as suas alterações (que continuam prevalecendo sobre o modelo).",
+    "redetectConfirm": "Voltar a detectar todas as páginas com o modelo atual? A detecção em cache será recalculada no próximo carregamento.",
+    "redetecting": "Detectando de novo…",
+    "redetected": "Detectado de novo com o modelo atual",
+    "redetectFailed": "A nova detecção falhou"
+  },
+  "actions": {
+    "editPanelLayout": "Editar a disposição das vinhetas",
+    "readAgain": "Ler de novo (terminada)",
+    "resume": "Retomar — página {page} de {pages}",
+    "read": "Ler",
+    "markUnread": "Marcar como não lida",
+    "markRead": "Marcar como lida",
+    "markReadBtn": "Marcar lida",
+    "markReadTitle": "Marcar como lidas as edições selecionadas (nada selecionado = toda a série)",
+    "markUnreadBtn": "Marcar não lida",
+    "markUnreadTitle": "Apagar o progresso de leitura das edições selecionadas (nada selecionado = toda a série)",
+    "laterAdded": {
+      "one": "{count} edição adicionada a Ler mais tarde.",
+      "other": "{count} edições adicionadas a Ler mais tarde."
+    },
+    "laterRemoved": {
+      "one": "{count} edição removida de Ler mais tarde.",
+      "other": "{count} edições removidas de Ler mais tarde."
+    },
+    "readLaterN": "Ler mais tarde ({count})",
+    "laterBulkTitle": "Adicionar as edições selecionadas a Ler mais tarde (nada selecionado = tudo o que falta ler)",
+    "continueN": "Continuar no n.º {n} ({read}/{total} lidas)",
+    "rereadAll": "Reler (todas as {total} lidas)",
+    "continueTitle": "Retomar onde ficou"
+  },
+  "library": {
+    "fileCovers": "Usar a primeira página do arquivo como capa de uma edição que tem (desligado = sempre a capa do catálogo)",
+    "fileCoversNote": "Aplica-se à grelha de edições na página de uma série. A página do seu arquivo pode diferir da imagem do catálogo quando é uma capa variante ou outra tiragem.",
+    "panelMl": "Usar o detetor de vinhetas ML na vista guiada (desligado = detecção integrada)",
+    "panelMlNote": "Só se aplica quando há um modelo de vinhetas instalado no servidor. Alterar isto volta a detectar uma vez a disposição de cada edição na próxima abertura.",
+    "panelShare": "Compartilhar as disposições das vinhetas com a cache da comunidade",
+    "panelShareNote": "Quando ativado, as disposições são procuradas primeiro em uma cache compartilhada (vista guiada imediata para páginas que outros já cobriram), e as suas detecções e correções manuais são devolvidas. Só são enviados os retângulos das vinhetas e um hash do conteúdo da página, nunca imagens nem nomes de arquivos."
+  },
+  "menu": {
+    "section": "Leitura"
+  },
+  "incognito": {
+    "on": "Leitura em incógnito LIGADA — progresso, histórico e estatísticas não são registrados.",
+    "off": "Leitura em incógnito desligada — o registro foi retomado.",
+    "titleOn": "A leitura em incógnito está LIGADA — progresso, histórico e estatísticas não estão sendo registrados. Clique para desligar.",
+    "titleOff": "Leitura em incógnito — clique para ler sem registrar progresso, histórico nem estatísticas.",
+    "toggle": "Alternar a leitura em incógnito"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "Leitor de quadrinhos completo no browser: modos página, página dupla e webtoon, progresso e retomar, marcadores, leitura offline, perfis por série, prateleiras de leitura no início"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "Ler quadrinhos",
+          "description": "Abrir quadrinhos no leitor do browser e salvar o histórico de leitura"
+        },
+        "panels": {
+          "edit": {
+            "label": "Editar a disposição das vinhetas",
+            "description": "Corrigir as caixas das vinhetas da leitura guiada; as alterações aplicam-se a todo o servidor para o arquivo"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "Pré-gerar as capas das edições"
+      }
+    }
+  }
+}
