@@ -1,0 +1,355 @@
+{
+  "couldNotOpen": "无法打开这一期",
+  "ariaReader": "漫画阅读器",
+  "top": {
+    "closeTitle": "关闭（Esc）",
+    "closeAria": "关闭阅读器",
+    "modeTitle": "阅读模式（d/w）",
+    "mode": "阅读模式",
+    "rtlTitle": "阅读方向（m）",
+    "rtl": "阅读方向",
+    "fitTitle": "适配（h/v/o）",
+    "fit": "适配模式",
+    "guidedTitle": "分格导读（g）",
+    "guided": "分格导读",
+    "zoomOutTitle": "缩小（-）",
+    "zoomOut": "缩小",
+    "zoomInTitle": "放大（+）",
+    "zoomIn": "放大",
+    "rotateTitle": "旋转页面（r）",
+    "rotate": "旋转页面",
+    "bookmarkTitle": "为此页添加书签（b）",
+    "bookmark": "为此页添加书签",
+    "infoTitle": "本期信息（i）",
+    "info": "本期信息",
+    "displaySettings": "显示设置",
+    "fullscreenTitle": "全屏（f）",
+    "fullscreen": "全屏",
+    "thumbsTitle": "缩略图（t）",
+    "thumbs": "缩略图"
+  },
+  "readLater": "稍后阅读",
+  "offline": {
+    "download": "下载以离线阅读",
+    "removed": "已删除离线副本",
+    "available": "可离线阅读 ✓",
+    "remove": "删除离线副本",
+    "initializing": "离线功能正在初始化——请稍后再试"
+  },
+  "settings": {
+    "brightness": "亮度",
+    "background": "背景",
+    "black": "黑色",
+    "blackBg": "黑色背景",
+    "gray": "灰色",
+    "grayBg": "灰色背景",
+    "white": "白色",
+    "whiteBg": "白色背景",
+    "colourFilter": "色彩滤镜",
+    "filterNormal": "正常",
+    "invertTitle": "反色——夜间或墨水屏上更护眼",
+    "filterInvert": "反色",
+    "filterSepia": "怀旧",
+    "incognitoTitle": "阅读时不记录进度、历史和统计",
+    "incognito": "无痕（不记录）",
+    "autoSpeedTitle": "条漫模式下的自动滚动速度——按 s 开始/停止",
+    "autoSpeed": "自动滚动速度",
+    "splitWide": "拆分宽页",
+    "offsetTitle": "修正跨页配对错开一页的书（封二页）",
+    "offsetSpreads": "错开跨页（o）",
+    "dataSaverTitle": "提供缩小后的页面——在手机或平板上大幅节省流量",
+    "dataSaver": "省流量",
+    "trimTitle": "裁去扫描件的白边，让页面占满更多屏幕",
+    "trim": "裁剪边距",
+    "tapBothTitle": "点击任意一侧边缘都前进（后退用按键或滑动）",
+    "tapBoth": "两侧 = 前进",
+    "hintsTitle": "显示手势和快捷键帮助（?）",
+    "hintsBtn": "? 快捷键与手势"
+  },
+  "bookmarks": "书签",
+  "page": "页",
+  "continueReading": "继续阅读",
+  "closeList": "关闭列表",
+  "pageN": "第 {n} 页",
+  "pageFailed": "第 {n} 页加载失败",
+  "retry": "重试",
+  "autoScroll": {
+    "webtoonOnly": "自动滚动仅在条漫模式（w）下可用",
+    "on": "自动滚动 {speed}px/s——按 s 停止"
+  },
+  "guided": {
+    "on": "分格导读——逐格显示（按 g 退出）",
+    "off": "已关闭分格导读",
+    "noPanels": "此处未检测到分格——显示整页",
+    "detectingProgress": "正在检测分格… {done}/{total} 页",
+    "detecting": "正在检测分格…"
+  },
+  "spreadsShifted": "跨页已错开一页",
+  "spreadOffsetOff": "已关闭跨页错开",
+  "rotated": "已旋转 {deg}°",
+  "rotationReset": "已重置旋转",
+  "goToSeries": "前往系列",
+  "bookmarkPage": "书签——第 {n} 页",
+  "removeFromLater": "从稍后阅读中移除",
+  "addedLater": "已加入稍后阅读",
+  "removedLater": "已从稍后阅读中移除",
+  "noBookmarksYet": "还没有——在页面上按 b。",
+  "pageAbbrev": "第 {n} 页",
+  "nextIssue": "下一期",
+  "nextInArc": "故事线中的下一期",
+  "arc": {
+    "issueComplete": "本期读完 · {issue}",
+    "readInRun": "本轮已读 {read}/{total}",
+    "upNext": "此故事线的下一期",
+    "readNow": "立即阅读",
+    "later": "稍后",
+    "backToArc": "返回故事线"
+  },
+  "end": {
+    "youFinished": "你已读完 {issue}",
+    "upNext": "接下来",
+    "reread": "重读",
+    "backToSeries": "返回系列",
+    "endOfSeries": "系列已完结"
+  },
+  "info": {
+    "close": "关闭信息",
+    "inStores": "上架 {date}",
+    "coverDate": "封面日期 {date}",
+    "credits": "创作者",
+    "noMetadata": "这一期还没有元数据——请在系列页面使用“标记文件”。",
+    "viewSource": "查看来源页面"
+  },
+  "hints": {
+    "forward": "前进",
+    "back": "后退",
+    "menu": "菜单",
+    "turn": "<b>← →  空格</b> 翻页 · <b>滑动</b>也可以",
+    "modes": "<b>d</b> 双页 · <b>w</b> 条漫 · <b>m</b> 阅读方向",
+    "tools": "<b>o</b> 错开跨页 · <b>b</b> 书签 · <b>r</b> 旋转 · <b>i</b> 本期信息 · <b>t</b> 缩略图",
+    "more": "<b>s</b> 自动滚动（条漫） · <b>f</b> 全屏 · <b>+ −</b> 缩放（也可双指捏合和双击） · <b>?</b> 本帮助",
+    "gotIt": "知道了"
+  },
+  "panels": {
+    "nothingInProgress": "没有正在读的内容——用 ▶ 按钮打开任意已拥有的期。",
+    "pageOf": "第 {page}/{pages} 页 · {pct}%",
+    "bookmarkedPage": "书签在第 {n} 页",
+    "nothingSaved": "没有保存的内容——使用阅读器中的“稍后阅读”按钮（或行内的“稍后阅读”操作）添加期。",
+    "noBookmarks": "还没有书签——阅读时在页面上按 b。"
+  },
+  "myBookmarks": "我的书签",
+  "readingStats": "阅读统计",
+  "stats": {
+    "noReading": "还没有阅读记录——统计会随阅读逐渐积累。",
+    "nPages": {
+      "other": "{count} 页"
+    },
+    "pagesRead": "已读页数",
+    "issuesFinished": "已读完的期",
+    "pagesThisMonth": "本月页数",
+    "dayStreak": "连续天数",
+    "last30": "最近 30 天",
+    "mostFinished": "读完最多"
+  },
+  "shelves": {
+    "hideTitle": "隐藏此书架——可在“阅读书架”中重新开启",
+    "hide": "隐藏 {shelf}",
+    "notLinked": "这一期没有关联到你书库中的系列。",
+    "nextUp": "接下来",
+    "newInLibrary": "书库新增",
+    "recentlyFinished": "最近读完",
+    "startNew": "开始新系列"
+  },
+  "profile": {
+    "shelves": "阅读书架",
+    "shelvesNote": "选择哪些书架显示在书库顶部。",
+    "defaults": "阅读默认设置",
+    "defaultsNote": "打开没有保存自己布局的漫画时使用。",
+    "defaultLayout": "默认布局",
+    "singlePage": "单页",
+    "doublePage": "双页",
+    "webtoon": "条漫（长条）",
+    "pageFit": "页面适配",
+    "fitHeight": "适配高度",
+    "fitWidth": "适配宽度",
+    "originalSize": "原始大小",
+    "eyeComfort": "护眼",
+    "none": "无",
+    "invertDark": "反色（深色）",
+    "grayscale": "灰度",
+    "countReadAt": "视为已读的位置",
+    "lastPage": "最后一页",
+    "rtlManga": "从右到左（日漫）",
+    "dataSaver": "省流量（加载较小的页面）",
+    "trimMargins": "裁剪页面边距",
+    "keepAwake": "阅读时保持屏幕常亮",
+    "alwaysIncognito": "始终无痕阅读（不记录进度、历史和统计）"
+  },
+  "studio": {
+    "issueN": "期 {id}",
+    "title": "分格布局——{label}",
+    "databaseTitle": "浏览此服务器数据库中保存的所有分格布局",
+    "database": "数据库",
+    "redetectTitle": "丢弃缓存的检测结果，用当前模型重新检测",
+    "redetect": "重新检测",
+    "saveAll": "全部保存",
+    "close": "关闭",
+    "chipAll": "全部",
+    "chipNone": "无布局",
+    "chipEdited": "已编辑",
+    "chipUnreviewed": "未审核",
+    "addTitle": "添加分格（也可以在页面空白处拖动来绘制）",
+    "add": "添加",
+    "deleteTitle": "删除所选（Del）",
+    "delete": "删除",
+    "readEarlier": "提前阅读",
+    "readLater": "推后阅读",
+    "orderTitle": "按阅读顺序点击分格",
+    "setOrder": "设置顺序",
+    "snapTitle": "将边缘吸附到画出的边框",
+    "snap": "吸附",
+    "magnetTitle": "将新画的分格自动吸附到边框",
+    "autoSnap": "自动吸附",
+    "copyTitle": "复制此页的布局",
+    "copy": "复制",
+    "pasteTitle": "将复制的布局粘贴到此页",
+    "paste": "粘贴",
+    "undoTitle": "撤销（Ctrl+Z）",
+    "undo": "撤销",
+    "redoTitle": "重做（Ctrl+Shift+Z）",
+    "redo": "重做",
+    "previewTitle": "播放此布局的导读预览",
+    "preview": "预览",
+    "reviewTitle": "逐页检查——按空格确认每个布局",
+    "review": "审核",
+    "pageModeTitle": "无分格——按整页阅读",
+    "wholePage": "整页",
+    "autoTitle": "丢弃编辑，恢复自动检测",
+    "auto": "自动",
+    "saveAllN": "全部保存（{count}）",
+    "loadingLayout": "正在加载布局…",
+    "noFile": "这一期没有文件",
+    "detectingProgress": "正在检测分格… {done}/{total}",
+    "hint": "拖动角点调整大小 · 双击解锁角点 · 在空白处拖动以绘制分格",
+    "panelsAbbrev": "{count} 格",
+    "pageWord": "页",
+    "noPagesMatch": "没有匹配的页面",
+    "cornersUnlocked": "角点已解锁——可分别拖动",
+    "cornersLocked": "角点已锁定——分格已恢复为矩形",
+    "placingCorners": "正在放置角点——点击添加，点击第一个点闭合，Esc 取消",
+    "panelAdded": "已添加分格",
+    "snapped": "已吸附到边框",
+    "orderUpdated": "已更新阅读顺序",
+    "tapOrder": "按阅读顺序点击分格——{done}/{total}",
+    "reviewProgress": "审核——已确认 {done}/{total} · 空格确认，方向键跳过，Esc 退出",
+    "allReviewed": "所有页面都已审核",
+    "fullyReviewed": "本期已全部审核",
+    "saveFailedReview": "无法保存此页——未标记为已审核",
+    "revertFailedReview": "无法还原此页——未标记为已审核",
+    "fullPageReads": "此页按整页阅读",
+    "previewing": "正在预览阅读顺序——点击停止",
+    "snappedAll": "已吸附所有分格",
+    "autoSnapOn": "已开启自动吸附——新分格会吸附到边框",
+    "autoSnapOff": "已关闭自动吸附——分格会保持在你绘制的位置",
+    "layoutCopied": "已复制布局",
+    "db": {
+      "builtIn": "内置",
+      "reviewed": "已审核",
+      "pageMode": "整页模式",
+      "title": "布局数据库",
+      "searchPlaceholder": "搜索系列 / 期…",
+      "searchAria": "搜索已保存的布局",
+      "loading": "加载中…",
+      "prev": "上一页",
+      "next": "下一页",
+      "pageN": "第 {n} 页",
+      "nPanels": {
+        "other": "{count} 格"
+      },
+      "pageModeBadge": "整页模式",
+      "noMatch": "没有匹配的已保存布局",
+      "range": "{from}–{to}，共 {total}",
+      "loadFailed": "无法加载布局数据库"
+    },
+    "saving": "保存中…",
+    "pagesFailedSave": {
+      "other": "{count} 页保存失败"
+    },
+    "saved": "已保存",
+    "someFailed": "部分分格编辑保存失败",
+    "layoutsSaved": "分格布局已保存",
+    "discardConfirm": "放弃未保存的分格编辑？",
+    "redetectWipeConfirm": "是否同时丢弃这一期已保存的分格编辑和审核记录？\n\n确定 = 全部清除并从头重新检测。\n取消 = 重新检测但保留编辑（编辑仍优先于模型）。",
+    "redetectConfirm": "用当前模型重新检测所有页面？缓存的检测结果将在下次加载时重新计算。",
+    "redetecting": "正在重新检测…",
+    "redetected": "已用当前模型重新检测",
+    "redetectFailed": "重新检测失败"
+  },
+  "actions": {
+    "editPanelLayout": "编辑分格布局",
+    "readAgain": "重新阅读（已读完）",
+    "resume": "继续——第 {page}/{pages} 页",
+    "read": "阅读",
+    "markUnread": "标记为未读",
+    "markRead": "标记为已读",
+    "markReadBtn": "标记已读",
+    "markReadTitle": "将勾选的期标记为已读（未勾选 = 整个系列）",
+    "markUnreadBtn": "标记未读",
+    "markUnreadTitle": "清除勾选的期的阅读进度（未勾选 = 整个系列）",
+    "laterAdded": {
+      "other": "已将 {count} 期加入稍后阅读。"
+    },
+    "laterRemoved": {
+      "other": "已将 {count} 期移出稍后阅读。"
+    },
+    "readLaterN": "稍后阅读（{count}）",
+    "laterBulkTitle": "将勾选的期加入稍后阅读（未勾选 = 所有未读内容）",
+    "continueN": "继续第 {n} 期（已读 {read}/{total}）",
+    "rereadAll": "重读（{total} 期均已读）",
+    "continueTitle": "从上次停下的地方继续"
+  },
+  "library": {
+    "fileCovers": "用文件的第一页作为已拥有期的封面（关闭 = 始终使用目录封面）",
+    "fileCoversNote": "作用于系列页面的期网格。若为变体封面或不同印次，文件中的页面可能与目录封面不同。",
+    "panelMl": "分格导读使用 ML 分格检测器（关闭 = 内置检测）",
+    "panelMlNote": "仅在服务器安装了分格模型时生效。切换此项后，每期的分格布局会在下次打开时重新检测一次。",
+    "panelShare": "与社区缓存共享分格布局",
+    "panelShareNote": "开启后，检测前会先从共享缓存中查找分格布局（他人处理过的页面可立即导读），你的检测结果和手动修正也会贡献回去。只发送分格矩形和页面内容哈希，绝不发送图片数据或文件名。"
+  },
+  "menu": {
+    "section": "阅读"
+  },
+  "incognito": {
+    "on": "无痕阅读已开启——不会记录进度、历史和统计。",
+    "off": "无痕阅读已关闭——已恢复记录。",
+    "titleOn": "无痕阅读已开启——不会记录进度、历史和统计。点击关闭。",
+    "titleOff": "无痕阅读——点击后阅读时不记录进度、历史和统计。",
+    "toggle": "切换无痕阅读"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "功能丰富的浏览器内漫画阅读器：单页/双页/条漫模式、进度与续读、书签、离线阅读、按系列设置、主页阅读书架"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "阅读漫画",
+          "description": "在浏览器阅读器中打开漫画并保留阅读历史"
+        },
+        "panels": {
+          "edit": {
+            "label": "编辑分格布局",
+            "description": "修正分格导读的分格框；编辑会在服务器范围内对该文件生效"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "预生成期封面"
+      }
+    }
+  }
+}

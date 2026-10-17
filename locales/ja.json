@@ -1,0 +1,355 @@
+{
+  "couldNotOpen": "この号を開けませんでした",
+  "ariaReader": "コミックリーダー",
+  "top": {
+    "closeTitle": "閉じる（Esc）",
+    "closeAria": "リーダーを閉じる",
+    "modeTitle": "表示モード（d/w）",
+    "mode": "表示モード",
+    "rtlTitle": "読む方向（m）",
+    "rtl": "読む方向",
+    "fitTitle": "フィット（h/v/o）",
+    "fit": "フィットモード",
+    "guidedTitle": "コマ送り表示（g）",
+    "guided": "コマ送り表示",
+    "zoomOutTitle": "縮小（-）",
+    "zoomOut": "縮小",
+    "zoomInTitle": "拡大（+）",
+    "zoomIn": "拡大",
+    "rotateTitle": "ページを回転（r）",
+    "rotate": "ページを回転",
+    "bookmarkTitle": "ページをブックマーク（b）",
+    "bookmark": "ページをブックマーク",
+    "infoTitle": "号の情報（i）",
+    "info": "号の情報",
+    "displaySettings": "表示設定",
+    "fullscreenTitle": "全画面（f）",
+    "fullscreen": "全画面",
+    "thumbsTitle": "サムネイル（t）",
+    "thumbs": "サムネイル"
+  },
+  "readLater": "あとで読む",
+  "offline": {
+    "download": "オフライン用にダウンロード",
+    "removed": "オフラインコピーを削除しました",
+    "available": "オフラインで利用可能 ✓",
+    "remove": "オフラインコピーを削除",
+    "initializing": "オフライン機能を準備中です。しばらくしてからもう一度お試しください"
+  },
+  "settings": {
+    "brightness": "明るさ",
+    "background": "背景",
+    "black": "黒",
+    "blackBg": "黒い背景",
+    "gray": "グレー",
+    "grayBg": "グレーの背景",
+    "white": "白",
+    "whiteBg": "白い背景",
+    "colourFilter": "カラーフィルター",
+    "filterNormal": "標準",
+    "invertTitle": "反転 — 夜間や電子ペーパーで目にやさしい表示",
+    "filterInvert": "反転",
+    "filterSepia": "セピア",
+    "incognitoTitle": "進捗、履歴、統計を記録せずに読みます",
+    "incognito": "シークレット（記録しない）",
+    "autoSpeedTitle": "縦読みモードでの自動スクロール速度 — s で開始・停止",
+    "autoSpeed": "自動スクロール速度",
+    "splitWide": "横長のページを分割",
+    "offsetTitle": "見開きの組み合わせが 1 ページずれている本を修正します（表紙裏のページ）",
+    "offsetSpreads": "見開きをずらす（o）",
+    "dataSaverTitle": "縮小したページを配信します。スマートフォンやタブレットで通信量を大幅に節約できます",
+    "dataSaver": "データ節約",
+    "trimTitle": "スキャンの白い余白を削って、ページを画面いっぱいに表示します",
+    "trim": "余白をトリミング",
+    "tapBothTitle": "どちらの端をタップしても次へ進みます（戻るのはキーまたはスワイプ）",
+    "tapBoth": "両端 = 次へ",
+    "hintsTitle": "ジェスチャーとショートカットのヘルプを表示（?）",
+    "hintsBtn": "? ショートカットとジェスチャー"
+  },
+  "bookmarks": "ブックマーク",
+  "page": "ページ",
+  "continueReading": "続きを読む",
+  "closeList": "リストを閉じる",
+  "pageN": "{n} ページ",
+  "pageFailed": "{n} ページを読み込めませんでした",
+  "retry": "再試行",
+  "autoScroll": {
+    "webtoonOnly": "自動スクロールは縦読みモード（w）で使えます",
+    "on": "自動スクロール {speed}px/s — s で停止"
+  },
+  "guided": {
+    "on": "コマ送り表示 — 1 コマずつ表示します（g で終了）",
+    "off": "コマ送り表示をオフにしました",
+    "noPanels": "ここではコマが検出されませんでした — ページ全体を表示します",
+    "detectingProgress": "コマを検出中… {done}/{total} ページ",
+    "detecting": "コマを検出中…"
+  },
+  "spreadsShifted": "見開きを 1 ページずらしました",
+  "spreadOffsetOff": "見開きのずれ補正をオフにしました",
+  "rotated": "{deg}° 回転しました",
+  "rotationReset": "回転をリセットしました",
+  "goToSeries": "シリーズへ移動",
+  "bookmarkPage": "ブックマーク — {n} ページ",
+  "removeFromLater": "「あとで読む」から削除",
+  "addedLater": "「あとで読む」に追加しました",
+  "removedLater": "「あとで読む」から削除しました",
+  "noBookmarksYet": "まだありません。ページ上で b を押してください。",
+  "pageAbbrev": "{n} ページ",
+  "nextIssue": "次の号",
+  "nextInArc": "アークの次の号",
+  "arc": {
+    "issueComplete": "号を読了 · {issue}",
+    "readInRun": "この流れで {total} 号中 {read} 号を読了",
+    "upNext": "このアークの次の号",
+    "readNow": "今すぐ読む",
+    "later": "あとで",
+    "backToArc": "アークに戻る"
+  },
+  "end": {
+    "youFinished": "{issue} を読み終えました",
+    "upNext": "次はこちら",
+    "reread": "もう一度読む",
+    "backToSeries": "シリーズに戻る",
+    "endOfSeries": "シリーズの最後です"
+  },
+  "info": {
+    "close": "情報を閉じる",
+    "inStores": "発売日 {date}",
+    "coverDate": "表紙の日付 {date}",
+    "credits": "クレジット",
+    "noMetadata": "この号にはまだメタデータがありません。シリーズで「ファイルにタグ付け」を使ってください。",
+    "viewSource": "ソースのページを見る"
+  },
+  "hints": {
+    "forward": "次へ",
+    "back": "前へ",
+    "menu": "メニュー",
+    "turn": "<b>← →  スペース</b> ページをめくる · <b>スワイプ</b>も使えます",
+    "modes": "<b>d</b> 見開き · <b>w</b> 縦読み · <b>m</b> 読む方向",
+    "tools": "<b>o</b> 見開きをずらす · <b>b</b> ブックマーク · <b>r</b> 回転 · <b>i</b> 号の情報 · <b>t</b> サムネイル",
+    "more": "<b>s</b> 自動スクロール（縦読み） · <b>f</b> 全画面 · <b>+ −</b> ズーム（ピンチやダブルタップも可） · <b>?</b> このヘルプ",
+    "gotIt": "わかりました"
+  },
+  "panels": {
+    "nothingInProgress": "読みかけの号はありません。所有している号を ▶ ボタンで開いてください。",
+    "pageOf": "{pages} ページ中 {page} ページ · {pct}%",
+    "bookmarkedPage": "{n} ページをブックマーク",
+    "nothingSaved": "保存されたものはありません。リーダーの「あとで読む」ボタン（または行の「あとで読む」アクション）で号を追加できます。",
+    "noBookmarks": "ブックマークはまだありません。読書中にページ上で b を押してください。"
+  },
+  "myBookmarks": "マイブックマーク",
+  "readingStats": "読書統計",
+  "stats": {
+    "noReading": "まだ読書記録がありません。読むにつれて統計がたまっていきます。",
+    "nPages": {
+      "other": "{count} ページ"
+    },
+    "pagesRead": "読んだページ",
+    "issuesFinished": "読了した号",
+    "pagesThisMonth": "今月のページ",
+    "dayStreak": "日連続",
+    "last30": "過去 30 日",
+    "mostFinished": "よく読み終えたシリーズ"
+  },
+  "shelves": {
+    "hideTitle": "この棚を非表示にします（「読書の棚」から再表示できます）",
+    "hide": "{shelf} を非表示",
+    "notLinked": "その号はライブラリ内のシリーズに関連付けられていません。",
+    "nextUp": "次に読む",
+    "newInLibrary": "ライブラリの新着",
+    "recentlyFinished": "最近読み終えた号",
+    "startNew": "新しいシリーズを始める"
+  },
+  "profile": {
+    "shelves": "読書の棚",
+    "shelvesNote": "ライブラリの上部に表示する棚を選びます。",
+    "defaults": "読書の既定値",
+    "defaultsNote": "レイアウトが保存されていないコミックを開くときに使われます。",
+    "defaultLayout": "既定のレイアウト",
+    "singlePage": "単ページ",
+    "doublePage": "見開き",
+    "webtoon": "縦読み（ロングストリップ）",
+    "pageFit": "ページのフィット",
+    "fitHeight": "高さに合わせる",
+    "fitWidth": "幅に合わせる",
+    "originalSize": "元のサイズ",
+    "eyeComfort": "目の保護",
+    "none": "なし",
+    "invertDark": "反転（ダーク）",
+    "grayscale": "グレースケール",
+    "countReadAt": "既読とみなす位置",
+    "lastPage": "最後のページ",
+    "rtlManga": "右から左（マンガ）",
+    "dataSaver": "データ節約（軽量なページを読み込む）",
+    "trimMargins": "ページの余白をトリミング",
+    "keepAwake": "読書中は画面をオフにしない",
+    "alwaysIncognito": "常にシークレットで読む（進捗、履歴、統計を記録しない）"
+  },
+  "studio": {
+    "issueN": "号 {id}",
+    "title": "コマのレイアウト — {label}",
+    "databaseTitle": "このサーバーのデータベースに保存されたすべてのコマのレイアウトを閲覧します",
+    "database": "データベース",
+    "redetectTitle": "キャッシュされた検出結果を破棄して、現在のモデルで再検出します",
+    "redetect": "再検出",
+    "saveAll": "すべて保存",
+    "close": "閉じる",
+    "chipAll": "すべて",
+    "chipNone": "レイアウトなし",
+    "chipEdited": "編集済み",
+    "chipUnreviewed": "未確認",
+    "addTitle": "コマを追加（ページの空いている部分をドラッグしても描けます）",
+    "add": "追加",
+    "deleteTitle": "選択したものを削除（Del）",
+    "delete": "削除",
+    "readEarlier": "前に読む",
+    "readLater": "後に読む",
+    "orderTitle": "読む順にコマをタップします",
+    "setOrder": "順序を設定",
+    "snapTitle": "描かれた枠線に端を合わせます",
+    "snap": "スナップ",
+    "magnetTitle": "新しく描いたコマを自動で枠線に合わせます",
+    "autoSnap": "自動スナップ",
+    "copyTitle": "このページのレイアウトをコピー",
+    "copy": "コピー",
+    "pasteTitle": "コピーしたレイアウトをこのページに貼り付け",
+    "paste": "貼り付け",
+    "undoTitle": "元に戻す（Ctrl+Z）",
+    "undo": "元に戻す",
+    "redoTitle": "やり直す（Ctrl+Shift+Z）",
+    "redo": "やり直す",
+    "previewTitle": "このレイアウトのコマ送りをプレビュー再生します",
+    "preview": "プレビュー",
+    "reviewTitle": "ページを順に確認します。スペースで各レイアウトを確定します",
+    "review": "確認",
+    "pageModeTitle": "コマなし — ページ全体として読みます",
+    "wholePage": "ページ全体",
+    "autoTitle": "編集を破棄して自動検出に戻します",
+    "auto": "自動",
+    "saveAllN": "すべて保存（{count}）",
+    "loadingLayout": "レイアウトを読み込み中…",
+    "noFile": "この号のファイルがありません",
+    "detectingProgress": "コマを検出中… {done}/{total}",
+    "hint": "角をドラッグしてサイズ変更 · ダブルタップで角のロックを解除 · 空いている部分をドラッグしてコマを描く",
+    "panelsAbbrev": "{count} コマ",
+    "pageWord": "ページ",
+    "noPagesMatch": "一致するページはありません",
+    "cornersUnlocked": "角のロックを解除しました。それぞれ個別にドラッグできます",
+    "cornersLocked": "角をロックしました。コマを長方形に戻しました",
+    "placingCorners": "角を配置中 — クリックで追加、最初の点をクリックで閉じる、Esc でキャンセル",
+    "panelAdded": "コマを追加しました",
+    "snapped": "枠線に合わせました",
+    "orderUpdated": "読む順序を更新しました",
+    "tapOrder": "読む順にコマをタップ — {done}/{total}",
+    "reviewProgress": "確認中 — {done}/{total} 確定 · スペースで確定、矢印でスキップ、Esc で終了",
+    "allReviewed": "すべてのページは確認済みです",
+    "fullyReviewed": "号のすべてのページを確認しました",
+    "saveFailedReview": "このページを保存できませんでした。確認済みにはなっていません",
+    "revertFailedReview": "このページを元に戻せませんでした。確認済みにはなっていません",
+    "fullPageReads": "このページはページ全体として読みます",
+    "previewing": "読む順序をプレビュー中 — クリックで停止",
+    "snappedAll": "すべてのコマを枠線に合わせました",
+    "autoSnapOn": "自動スナップをオンにしました。新しいコマは枠線に吸着します",
+    "autoSnapOff": "自動スナップをオフにしました。コマは描いた位置にそのまま残ります",
+    "layoutCopied": "レイアウトをコピーしました",
+    "db": {
+      "builtIn": "内蔵",
+      "reviewed": "確認済み",
+      "pageMode": "ページモード",
+      "title": "レイアウトデータベース",
+      "searchPlaceholder": "シリーズ・号を検索…",
+      "searchAria": "保存されたレイアウトを検索",
+      "loading": "読み込み中…",
+      "prev": "前へ",
+      "next": "次へ",
+      "pageN": "{n} ページ",
+      "nPanels": {
+        "other": "{count} コマ"
+      },
+      "pageModeBadge": "ページモード",
+      "noMatch": "一致する保存済みレイアウトはありません",
+      "range": "{total} 件中 {from}–{to}",
+      "loadFailed": "レイアウトデータベースを読み込めませんでした"
+    },
+    "saving": "保存中…",
+    "pagesFailedSave": {
+      "other": "{count} ページを保存できませんでした"
+    },
+    "saved": "保存しました",
+    "someFailed": "一部のコマの編集を保存できませんでした",
+    "layoutsSaved": "コマのレイアウトを保存しました",
+    "discardConfirm": "保存していないコマの編集を破棄しますか？",
+    "redetectWipeConfirm": "この号で保存したコマの編集と確認状況も破棄しますか？\n\nOK = すべて消去して最初から再検出します。\nキャンセル = 再検出しますが編集は残します（編集は引き続きモデルより優先されます）。",
+    "redetectConfirm": "現在のモデルですべてのページを再検出しますか？キャッシュされた検出結果は次回の読み込み時に再計算されます。",
+    "redetecting": "再検出中…",
+    "redetected": "現在のモデルで再検出しました",
+    "redetectFailed": "再検出に失敗しました"
+  },
+  "actions": {
+    "editPanelLayout": "コマのレイアウトを編集",
+    "readAgain": "もう一度読む（読了）",
+    "resume": "再開 — {pages} ページ中 {page} ページ",
+    "read": "読む",
+    "markUnread": "未読にする",
+    "markRead": "既読にする",
+    "markReadBtn": "既読にする",
+    "markReadTitle": "チェックした号を既読にします（チェックなし = シリーズ全体）",
+    "markUnreadBtn": "未読にする",
+    "markUnreadTitle": "チェックした号の読書進捗を消去します（チェックなし = シリーズ全体）",
+    "laterAdded": {
+      "other": "{count} 号を「あとで読む」に追加しました。"
+    },
+    "laterRemoved": {
+      "other": "{count} 号を「あとで読む」から削除しました。"
+    },
+    "readLaterN": "あとで読む（{count}）",
+    "laterBulkTitle": "チェックした号を「あとで読む」に追加します（チェックなし = 未読のものすべて）",
+    "continueN": "#{n} から続きを読む（{total} 号中 {read} 号既読）",
+    "rereadAll": "もう一度読む（全 {total} 号既読）",
+    "continueTitle": "前回の続きから読みます"
+  },
+  "library": {
+    "fileCovers": "所有している号の表紙にファイルの最初のページを使う（オフ = 常にカタログの表紙画像）",
+    "fileCoversNote": "シリーズページの号の一覧に適用されます。ヴァリアントカバーや別の刷りの場合、ファイルのページはカタログの画像と異なることがあります。",
+    "panelMl": "コマ送り表示に ML のコマ検出を使う（オフ = 内蔵の検出）",
+    "panelMlNote": "サーバーにコマ検出モデルがインストールされている場合のみ有効です。切り替えると、各号のコマのレイアウトを次に開いたときに一度再検出します。",
+    "panelShare": "コマのレイアウトを共有キャッシュと共有する",
+    "panelShareNote": "オンにすると、検出の前に共有キャッシュからコマのレイアウトを探し（他の人が処理したページはすぐにコマ送り表示できます）、自分の検出結果や手動の修正を提供します。送信されるのはコマの矩形とページ内容のハッシュのみで、画像データやファイル名は送信されません。"
+  },
+  "menu": {
+    "section": "読書"
+  },
+  "incognito": {
+    "on": "シークレット読書がオンです。進捗、履歴、統計は記録されません。",
+    "off": "シークレット読書をオフにしました。記録を再開しました。",
+    "titleOn": "シークレット読書がオンです。進捗、履歴、統計は記録されていません。クリックするとオフになります。",
+    "titleOff": "シークレット読書 — クリックすると進捗、履歴、統計を記録せずに読めます。",
+    "toggle": "シークレット読書を切り替え"
+  },
+  "_shared": {
+    "plugins": {
+      "reader": {
+        "description": "多機能なブラウザー内コミックリーダー：単ページ・見開き・縦読みモード、進捗と再開、ブックマーク、オフライン読書、シリーズごとのプロファイル、ホームの読書の棚"
+      }
+    },
+    "permissions": {
+      "reader": {
+        "read": {
+          "label": "コミックを読む",
+          "description": "ブラウザーのリーダーでコミックを開き、読書履歴を記録します"
+        },
+        "panels": {
+          "edit": {
+            "label": "コマのレイアウトを編集",
+            "description": "コマ送り表示のコマの枠を修正します。編集はそのファイルについてサーバー全体に適用されます"
+          }
+        }
+      }
+    },
+    "jobs": {
+      "reader-cover-warm": {
+        "label": "号の表紙を事前生成"
+      }
+    }
+  }
+}
