@@ -73,6 +73,31 @@
   }
 
   window.BackIssue.registerClient((api) => {
+    // ---------- translations ----------
+    // api.t when the host has it (BackIssue > 0.9.0), the inline English
+    // otherwise. The same key/English pairs live in locales/en.json, which the
+    // other languages are translated from. `en` may be a { one, other } pair
+    // picked on params.count for the fallback.
+    const NS = 'reader.';
+    const escT = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const fill = (str, p) => (p ? String(str).replace(/\{(\w+)\}/g, (m, k) => (p[k] === undefined || p[k] === null ? m : String(p[k]))) : String(str));
+    const pickEn = (en, p) => (typeof en === 'string' ? en : (Number(p?.count) === 1 ? en.one : en.other));
+    const tr = (key, en, params) => {
+      if (typeof api.t !== 'function') return fill(pickEn(en, params), params);
+      const v = api.t(NS + key, params);
+      return v === NS + key ? fill(pickEn(en, params), params) : v;
+    };
+    // Escaped, for text dropped into innerHTML.
+    const te = (key, en, params) => escT(tr(key, en, params));
+    // innerHTML variant: params escaped, only simple inline tags pass through.
+    const trh = (key, en, params) => {
+      if (typeof api.th === 'function' && api.t(NS + key) !== NS + key) return api.th(NS + key, params);
+      const tokens = params ? Object.fromEntries(Object.keys(params).map((k) => [k, '\u0000' + k + '\u0000'])) : undefined;
+      let html = escT(fill(pickEn(en, params), tokens)).replace(/&lt;(\/?)(b|i|em|strong|code|br|kbd)&gt;/g, '<$1$2>');
+      if (params) for (const [k, v] of Object.entries(params)) html = html.split('\u0000' + k + '\u0000').join(escT(v ?? ''));
+      return html;
+    };
+
     // ---------- state ----------
     let overlay = null, els = {};
     let manifest = null;
@@ -166,7 +191,7 @@
       if (!m) {
         try { m = await api.get(`/api/reader/issue/${issueId}`); } catch (e) { m = { error: String(e) }; }
       }
-      if (!m || m.error) return toast(m && m.error ? m.error : 'Could not open this issue');
+      if (!m || m.error) return toast(m && m.error ? m.error : tr('couldNotOpen', 'Could not open this issue'));
       manifest = m;
       later = !!m.later;
       bookmarks = new Set(m.bookmarks || []);
@@ -294,50 +319,50 @@
       overlay.className = 'reader';
       overlay.tabIndex = -1;
       overlay.setAttribute('role', 'dialog');
-      overlay.setAttribute('aria-label', 'Comic reader');
+      overlay.setAttribute('aria-label', tr('ariaReader', 'Comic reader'));
       overlay.innerHTML = `
         <div class="reader__top">
-          <button class="reader__btn reader__close" title="Close (Esc)" aria-label="Close reader">${icon('close')}</button>
+          <button class="reader__btn reader__close" title="${te('top.closeTitle', 'Close (Esc)')}" aria-label="${te('top.closeAria', 'Close reader')}">${icon('close')}</button>
           <div class="reader__title"></div>
           <div class="reader__count"></div>
           <span class="reader__spacer"></span>
-          <button class="reader__btn r-mode"     title="Reading mode (d/w)" aria-label="Reading mode"></button>
-          <button class="reader__btn r-rtl"      title="Reading direction (m)" aria-label="Reading direction"></button>
-          <button class="reader__btn r-fit"      title="Fit (h/v/o)" aria-label="Fit mode"></button>
-          <button class="reader__btn r-guided"   title="Guided panel view (g)" aria-label="Guided panel view">${icon('panels')}</button>
-          <button class="reader__btn r-zoom-out" title="Zoom out (-)" aria-label="Zoom out">${icon('zoom-out')}</button>
-          <button class="reader__btn r-zoom-in"  title="Zoom in (+)" aria-label="Zoom in">${icon('zoom-in')}</button>
-          <button class="reader__btn r-rotate"   title="Rotate page (r)" aria-label="Rotate page">${icon('rotate')}</button>
-          <button class="reader__btn r-bookmark" title="Bookmark page (b)" aria-label="Bookmark page">${icon('bookmark')}</button>
-          <button class="reader__btn r-later"    title="Read later" aria-label="Read later">${icon('clock')}</button>
-          <button class="reader__btn r-info"     title="Issue info (i)" aria-label="Issue info">${icon('info')}</button>
-          <button class="reader__btn r-offline"  title="Download for offline" aria-label="Download for offline">${icon('download')}</button>
-          <button class="reader__btn r-settings" title="Display settings" aria-label="Display settings">${icon('settings')}</button>
-          <button class="reader__btn r-full"     title="Fullscreen (f)" aria-label="Fullscreen">${icon('maximize')}</button>
+          <button class="reader__btn r-mode"     title="${te('top.modeTitle', 'Reading mode (d/w)')}" aria-label="${te('top.mode', 'Reading mode')}"></button>
+          <button class="reader__btn r-rtl"      title="${te('top.rtlTitle', 'Reading direction (m)')}" aria-label="${te('top.rtl', 'Reading direction')}"></button>
+          <button class="reader__btn r-fit"      title="${te('top.fitTitle', 'Fit (h/v/o)')}" aria-label="${te('top.fit', 'Fit mode')}"></button>
+          <button class="reader__btn r-guided"   title="${te('top.guidedTitle', 'Guided panel view (g)')}" aria-label="${te('top.guided', 'Guided panel view')}">${icon('panels')}</button>
+          <button class="reader__btn r-zoom-out" title="${te('top.zoomOutTitle', 'Zoom out (-)')}" aria-label="${te('top.zoomOut', 'Zoom out')}">${icon('zoom-out')}</button>
+          <button class="reader__btn r-zoom-in"  title="${te('top.zoomInTitle', 'Zoom in (+)')}" aria-label="${te('top.zoomIn', 'Zoom in')}">${icon('zoom-in')}</button>
+          <button class="reader__btn r-rotate"   title="${te('top.rotateTitle', 'Rotate page (r)')}" aria-label="${te('top.rotate', 'Rotate page')}">${icon('rotate')}</button>
+          <button class="reader__btn r-bookmark" title="${te('top.bookmarkTitle', 'Bookmark page (b)')}" aria-label="${te('top.bookmark', 'Bookmark page')}">${icon('bookmark')}</button>
+          <button class="reader__btn r-later"    title="${te('readLater', 'Read later')}" aria-label="${te('readLater', 'Read later')}">${icon('clock')}</button>
+          <button class="reader__btn r-info"     title="${te('top.infoTitle', 'Issue info (i)')}" aria-label="${te('top.info', 'Issue info')}">${icon('info')}</button>
+          <button class="reader__btn r-offline"  title="${te('offline.download', 'Download for offline')}" aria-label="${te('offline.download', 'Download for offline')}">${icon('download')}</button>
+          <button class="reader__btn r-settings" title="${te('top.displaySettings', 'Display settings')}" aria-label="${te('top.displaySettings', 'Display settings')}">${icon('settings')}</button>
+          <button class="reader__btn r-full"     title="${te('top.fullscreenTitle', 'Fullscreen (f)')}" aria-label="${te('top.fullscreen', 'Fullscreen')}">${icon('maximize')}</button>
         </div>
         <div class="reader__settings" hidden>
           <div class="reader__quick"></div>
-          <label>Brightness <input type="range" class="r-brightness" min="30" max="130" step="5" aria-label="Brightness"></label>
-          <div class="reader__bgs" role="group" aria-label="Background">
-            <button data-bg="black" class="reader__bgbtn" title="Black" aria-label="Black background"></button>
-            <button data-bg="gray"  class="reader__bgbtn" title="Gray" aria-label="Gray background"></button>
-            <button data-bg="white" class="reader__bgbtn" title="White" aria-label="White background"></button>
+          <label>${te('settings.brightness', 'Brightness')} <input type="range" class="r-brightness" min="30" max="130" step="5" aria-label="${te('settings.brightness', 'Brightness')}"></label>
+          <div class="reader__bgs" role="group" aria-label="${te('settings.background', 'Background')}">
+            <button data-bg="black" class="reader__bgbtn" title="${te('settings.black', 'Black')}" aria-label="${te('settings.blackBg', 'Black background')}"></button>
+            <button data-bg="gray"  class="reader__bgbtn" title="${te('settings.gray', 'Gray')}" aria-label="${te('settings.grayBg', 'Gray background')}"></button>
+            <button data-bg="white" class="reader__bgbtn" title="${te('settings.white', 'White')}" aria-label="${te('settings.whiteBg', 'White background')}"></button>
           </div>
-          <div class="reader__filters" role="group" aria-label="Colour filter">
-            <button data-filter="none" class="reader__filterbtn">Normal</button>
-            <button data-filter="invert" class="reader__filterbtn" title="Invert — easy on the eyes at night / on e-ink">Invert</button>
-            <button data-filter="grayscale" class="reader__filterbtn">Gray</button>
-            <button data-filter="sepia" class="reader__filterbtn">Sepia</button>
+          <div class="reader__filters" role="group" aria-label="${te('settings.colourFilter', 'Colour filter')}">
+            <button data-filter="none" class="reader__filterbtn">${te('settings.filterNormal', 'Normal')}</button>
+            <button data-filter="invert" class="reader__filterbtn" title="${te('settings.invertTitle', 'Invert — easy on the eyes at night / on e-ink')}">${te('settings.filterInvert', 'Invert')}</button>
+            <button data-filter="grayscale" class="reader__filterbtn">${te('settings.gray', 'Gray')}</button>
+            <button data-filter="sepia" class="reader__filterbtn">${te('settings.filterSepia', 'Sepia')}</button>
           </div>
-          <label class="reader__check" title="Read without recording progress, history, or stats"><input type="checkbox" class="r-incognito"> Incognito (don't record)</label>
-          <label title="Hands-free scroll speed in webtoon mode — press s to start/stop">Auto-scroll speed <input type="range" class="r-autospeed" min="15" max="200" step="5" aria-label="Auto-scroll speed"></label>
-          <label class="reader__check"><input type="checkbox" class="r-split"> Split wide pages</label>
-          <label class="reader__check" title="Fix books whose two-page spreads pair off by one (inside-cover page)"><input type="checkbox" class="r-offset"> Offset spreads (o)</label>
-          <label class="reader__check" title="Serve downscaled pages — much less bandwidth on phone/tablet"><input type="checkbox" class="r-datasaver"> Data saver</label>
-          <label class="reader__check" title="Shave white scan borders so pages fill more of the screen"><input type="checkbox" class="r-trim"> Trim margins</label>
-          <label class="reader__check" title="Tap either edge to go forward (back via keys/swipe)"><input type="checkbox" class="r-tapboth"> Both edges = forward</label>
-          <button class="reader__btn r-hints" title="Show gesture & shortcut help (?)">? Shortcuts & gestures</button>
-          <div class="reader__bmhead">Bookmarks</div>
+          <label class="reader__check" title="${te('settings.incognitoTitle', 'Read without recording progress, history, or stats')}"><input type="checkbox" class="r-incognito"> ${te('settings.incognito', "Incognito (don't record)")}</label>
+          <label title="${te('settings.autoSpeedTitle', 'Hands-free scroll speed in webtoon mode — press s to start/stop')}">${te('settings.autoSpeed', 'Auto-scroll speed')} <input type="range" class="r-autospeed" min="15" max="200" step="5" aria-label="${te('settings.autoSpeed', 'Auto-scroll speed')}"></label>
+          <label class="reader__check"><input type="checkbox" class="r-split"> ${te('settings.splitWide', 'Split wide pages')}</label>
+          <label class="reader__check" title="${te('settings.offsetTitle', 'Fix books whose two-page spreads pair off by one (inside-cover page)')}"><input type="checkbox" class="r-offset"> ${te('settings.offsetSpreads', 'Offset spreads (o)')}</label>
+          <label class="reader__check" title="${te('settings.dataSaverTitle', 'Serve downscaled pages — much less bandwidth on phone/tablet')}"><input type="checkbox" class="r-datasaver"> ${te('settings.dataSaver', 'Data saver')}</label>
+          <label class="reader__check" title="${te('settings.trimTitle', 'Shave white scan borders so pages fill more of the screen')}"><input type="checkbox" class="r-trim"> ${te('settings.trim', 'Trim margins')}</label>
+          <label class="reader__check" title="${te('settings.tapBothTitle', 'Tap either edge to go forward (back via keys/swipe)')}"><input type="checkbox" class="r-tapboth"> ${te('settings.tapBoth', 'Both edges = forward')}</label>
+          <button class="reader__btn r-hints" title="${te('settings.hintsTitle', 'Show gesture & shortcut help (?)')}">${te('settings.hintsBtn', '? Shortcuts & gestures')}</button>
+          <div class="reader__bmhead">${te('bookmarks', 'Bookmarks')}</div>
           <div class="reader__bmlist"></div>
         </div>
         <div class="reader__body">
@@ -351,16 +376,16 @@
         <div class="reader__infocard" hidden></div>
         <div class="reader__hints" hidden></div>
         <div class="reader__bottom">
-          <button class="reader__btn r-thumbs" title="Thumbnails (t)" aria-label="Thumbnails">${icon('grid')}</button>
+          <button class="reader__btn r-thumbs" title="${te('top.thumbsTitle', 'Thumbnails (t)')}" aria-label="${te('top.thumbs', 'Thumbnails')}">${icon('grid')}</button>
           <div class="reader__sliderwrap">
             <div class="reader__marks"></div>
-            <input type="range" class="reader__slider" min="0" value="0" aria-label="Page">
+            <input type="range" class="reader__slider" min="0" value="0" aria-label="${te('page', 'Page')}">
           </div>
           <div class="reader__pageno"></div>
         </div>
         <div class="reader__thumbs" hidden></div>
         <div class="reader__panel" hidden>
-          <div class="reader__panelhead"><span class="reader__paneltitle">Continue reading</span> <button class="reader__btn reader__panelclose" aria-label="Close list">${icon('close')}</button></div>
+          <div class="reader__panelhead"><span class="reader__paneltitle">${te('continueReading', 'Continue reading')}</span> <button class="reader__btn reader__panelclose" aria-label="${te('closeList', 'Close list')}">${icon('close')}</button></div>
           <div class="reader__panellist"></div>
         </div>
         <div class="reader__toast" hidden></div>`;
@@ -619,7 +644,7 @@
       img.className = 'reader__page';
       img.src = pageUrl(n);
       img.draggable = false;
-      img.alt = `Page ${n + 1}`;
+      img.alt = tr('pageN', 'Page {n}', { n: n + 1 });
       img.onload = () => {
         const isWide = img.naturalWidth > img.naturalHeight;
         if (isWide && !wide[n]) { wide[n] = true; if (settings.mode === 'double' || settings.split) render(); }
@@ -645,10 +670,10 @@
     function failPage(img, n) {
       const err = document.createElement('div');
       err.className = 'reader__pageerr';
-      err.innerHTML = `<div>Page ${n + 1} failed to load</div>`;
+      err.innerHTML = `<div>${te('pageFailed', 'Page {n} failed to load', { n: n + 1 })}</div>`;
       const btn = document.createElement('button');
       btn.className = 'reader__btn';
-      btn.textContent = 'Retry';
+      btn.textContent = tr('retry', 'Retry');
       btn.onclick = () => { const u = pageUrl(n); img.src = u + (u.includes('?') ? '&' : '?') + `r=${Date.now()}`; err.replaceWith(img); };
       err.appendChild(btn);
       img.replaceWith(err);
@@ -676,7 +701,7 @@
         img.dataset.page = n;
         img.src = pageUrl(n);
         img.draggable = false;
-        img.alt = `Page ${n + 1}`;
+        img.alt = tr('pageN', 'Page {n}', { n: n + 1 });
         img.onload = () => { img.dataset.ratio = (img.naturalHeight / img.naturalWidth).toFixed(4); };
         img.onerror = () => failPage(img, n);
         frag.appendChild(img);
@@ -697,13 +722,13 @@
     // Hands-free continuous scroll at settings.autoScrollSpeed px/s. Only
     // meaningful in webtoon mode; stops at the bottom, on mode change, or close.
     function toggleAutoScroll() {
-      if (settings.mode !== 'webtoon') { toast('Auto-scroll works in webtoon mode (w)'); return; }
+      if (settings.mode !== 'webtoon') { toast(tr('autoScroll.webtoonOnly', 'Auto-scroll works in webtoon mode (w)')); return; }
       autoScroll ? stopAutoScroll() : startAutoScroll();
     }
     function startAutoScroll() {
       autoScroll = true; autoScrollLast = 0;
       overlay.classList.add('is-autoscroll');
-      toast(`Auto-scroll ${settings.autoScrollSpeed}px/s — s to stop`);
+      toast(tr('autoScroll.on', 'Auto-scroll {speed}px/s — s to stop', { speed: settings.autoScrollSpeed }));
       const step = (t) => {
         if (!autoScroll) return;
         if (autoScrollLast) {
@@ -754,14 +779,14 @@
         rotate = 0;
         if (!panelMap) fetchPanels();
         else { guidedIdx = 0; applyGuided(); }
-        toast('Guided view — panels one at a time (g to exit)');
+        toast(tr('guided.on', 'Guided view — panels one at a time (g to exit)'));
       } else {
         els.stage.querySelector('.reader__spot')?.remove();
         els.stage.querySelector('.reader__spotpoly')?.remove();
         zoom = 1; panX = panY = 0;
         els.stage.style.transform = stageTransform();
         els.stagewrap.classList.remove('is-zoomed');
-        toast('Guided view off');
+        toast(tr('guided.off', 'Guided view off'));
       }
     }
 
@@ -780,7 +805,7 @@
           if (guided) {
             guidedIdx = Math.min(guidedIdx, Math.max(0, panelsFor(page).length - 1));
             applyGuided();
-            if (!silent && !panelsFor(page).length) toast('No panels detected here — full page');
+            if (!silent && !panelsFor(page).length) toast(tr('guided.noPanels', 'No panels detected here — full page'));
           }
           return;
         }
@@ -788,8 +813,8 @@
           // Progress arrives once the issue's detection job is running
           // (jobs queue one at a time). Keep the toast alive with the page
           // count while in guided view — it's the only wait state there is.
-          if (guided && j.total) toast(`Detecting panels… ${j.done ?? 0}/${j.total} pages`);
-          else if (!silent) toast('Detecting panels…');
+          if (guided && j.total) toast(tr('guided.detectingProgress', 'Detecting panels… {done}/{total} pages', { done: j.done ?? 0, total: j.total }));
+          else if (!silent) toast(tr('guided.detecting', 'Detecting panels…'));
           setTimeout(() => { panelsFetching = false; if (guided) fetchPanels(true); }, j.total ? 1200 : 2500);
           return;
         }
@@ -967,7 +992,7 @@
         case 's': toggleAutoScroll(); break;
         case 't': settings.thumbs = !settings.thumbs; saveSettings(); syncThumbs(); break;
         case 'i': toggleInfo(); break;
-        case 'o': settings.spreadOffset = !settings.spreadOffset; els.offset.checked = settings.spreadOffset; saveSeriesPrefs(); render(); toast(settings.spreadOffset ? 'Spreads shifted by one' : 'Spread offset off'); break;
+        case 'o': settings.spreadOffset = !settings.spreadOffset; els.offset.checked = settings.spreadOffset; saveSeriesPrefs(); render(); toast(settings.spreadOffset ? tr('spreadsShifted', 'Spreads shifted by one') : tr('spreadOffsetOff', 'Spread offset off')); break;
         case '?': showHints(); break;
         case '+': case '=': setZoom(zoom * 1.25); break;
         case '-': setZoom(zoom / 1.25); break;
@@ -991,7 +1016,7 @@
     function rotatePage() {
       rotate = (rotate + 90) % 360;
       els.stage.style.transform = stageTransform();
-      toast(rotate ? `Rotated ${rotate}°` : 'Rotation reset');
+      toast(rotate ? tr('rotated', 'Rotated {deg}°', { deg: rotate }) : tr('rotationReset', 'Rotation reset'));
     }
     function setZoom(z) {
       zoom = Math.max(1, Math.min(6, z));
@@ -1049,7 +1074,7 @@
     function syncHud() {
       if (!manifest) return;
       const suffix = `#${manifest.issue.number ?? '?'}${manifest.issue.title ? ' · ' + manifest.issue.title : ''}`;
-      els.title.innerHTML = `<button type="button" class="reader__series-link" title="Go to series">${escapeHtml(manifest.series.title)}</button>`
+      els.title.innerHTML = `<button type="button" class="reader__series-link" title="${te('goToSeries', 'Go to series')}">${escapeHtml(manifest.series.title)}</button>`
         + ` <span class="reader__title-issue">— ${escapeHtml(suffix)}</span>`;
       els.count.textContent = `${page + 1} / ${manifest.pages}`;
       els.slider.max = manifest.pages - 1;
@@ -1065,7 +1090,7 @@
         const m = document.createElement('div');
         m.className = 'reader__mark';
         m.style.left = `${(b / max) * 100}%`;
-        m.title = `Bookmark — page ${b + 1}`;
+        m.title = tr('bookmarkPage', 'Bookmark — page {n}', { n: b + 1 });
         els.marks.appendChild(m);
       }
     }
@@ -1080,7 +1105,7 @@
           img.loading = 'lazy';
           img.src = pageUrl(n, 200); // downscaled server-side — pennies, not megabytes
           img.dataset.page = n;
-          img.alt = `Page ${n + 1}`;
+          img.alt = tr('pageN', 'Page {n}', { n: n + 1 });
           img.onclick = () => goTo(n);
           frag.appendChild(img);
         }
@@ -1101,12 +1126,12 @@
     }
     function refreshLaterBtn() {
       const b = overlay.querySelector('.r-later');
-      if (b) { b.classList.toggle('is-on', later); b.title = later ? 'Remove from Read later' : 'Read later'; }
+      if (b) { b.classList.toggle('is-on', later); b.title = later ? tr('removeFromLater', 'Remove from Read later') : tr('readLater', 'Read later'); }
     }
     async function toggleLater() {
       later = !later;
       refreshLaterBtn();
-      toast(later ? 'Added to Read later' : 'Removed from Read later');
+      toast(later ? tr('addedLater', 'Added to Read later') : tr('removedLater', 'Removed from Read later'));
       try {
         const r = await api.post(`/api/reader/issue/${manifest.issue.id}/later`, { on: later });
         later = !!r.later; refreshLaterBtn();
@@ -1115,11 +1140,11 @@
     }
     function renderBookmarkList() {
       els.bmlist.innerHTML = '';
-      if (!bookmarks.size) { els.bmlist.textContent = 'None yet — press b on a page.'; return; }
+      if (!bookmarks.size) { els.bmlist.textContent = tr('noBookmarksYet', 'None yet — press b on a page.'); return; }
       for (const b of [...bookmarks].sort((x, y) => x - y)) {
         const item = document.createElement('button');
         item.className = 'reader__bmitem';
-        item.innerHTML = `<img src="${pageUrl(b, 200)}" alt=""><span>p. ${b + 1}</span>`;
+        item.innerHTML = `<img src="${pageUrl(b, 200)}" alt=""><span>${te('pageAbbrev', 'p. {n}', { n: b + 1 })}</span>`;
         item.onclick = () => { goTo(b); els.settings.hidden = true; };
         els.bmlist.appendChild(item);
       }
@@ -1162,7 +1187,7 @@
       if (arcId) return offerArcNext();
       if (manifest.next) {
         nextHop = { id: manifest.next, arc: null };
-        els.nextbtn.innerHTML = `Next issue ${icon('arrow-right')}`;
+        els.nextbtn.innerHTML = `${te('nextIssue', 'Next issue')} ${icon('arrow-right')}`;
         els.next.hidden = false;
         prewarm();
       }
@@ -1178,7 +1203,7 @@
       if (!nx || nx.cv_issue_id === at) return;
       if (!manifest || manifest.issue.id !== at || !arcId) return;
       nextHop = { id: nx.cv_issue_id, arc: arcId };
-      els.nextbtn.innerHTML = `Next in arc ${icon('arrow-right')}`;
+      els.nextbtn.innerHTML = `${te('nextInArc', 'Next in arc')} ${icon('arrow-right')}`;
       els.next.hidden = false;
       prewarm(nx.cv_issue_id);
     }
@@ -1244,22 +1269,21 @@
       const pr = await loadArcProgress();
       const nx = pr?.next;
       if (!nx || nx.cv_issue_id === m.issue.id) return false;
-      const finished = `${escapeHtml(m.series.title)} #${escapeHtml(String(m.issue.number ?? '?'))}`;
       els.end.innerHTML = `
         <div class="reader__endcard reader__endcard--arc">
           <img src="/api/reader/issue/${nx.cv_issue_id}/page/0?w=400" alt="" loading="lazy"
             onerror="this.remove()">
           <div class="reader__endinfo">
-            <small class="reader__arcdone">${icon('check')} Issue complete · ${finished}</small>
+            <small class="reader__arcdone">${icon('check')} ${te('arc.issueComplete', 'Issue complete · {issue}', { issue: `${m.series.title} #${m.issue.number ?? '?'}` })}</small>
             ${arcTicks(pr)}
-            <small>${escapeHtml(String(pr.read || 0))} of ${escapeHtml(String(pr.total || 0))} read in this run</small>
-            <b>Up next in this arc</b>
+            <small>${te('arc.readInRun', '{read} of {total} read in this run', { read: pr.read || 0, total: pr.total || 0 })}</small>
+            <b>${te('arc.upNext', 'Up next in this arc')}</b>
             <div class="reader__arcnext">${escapeHtml(nx.series || '')} <span>#${escapeHtml(String(nx.issue_number ?? '?'))}</span></div>
             ${nx.title ? `<small>${escapeHtml(nx.title)}</small>` : ''}
             <div class="reader__endbtns">
-              <button class="reader__nextbtn e-arcnext">Read now ${icon('arrow-right')}</button>
-              <button class="reader__btn e-later">Later</button>
-              <button class="reader__btn e-backarc">Back to arc</button>
+              <button class="reader__nextbtn e-arcnext">${te('arc.readNow', 'Read now')} ${icon('arrow-right')}</button>
+              <button class="reader__btn e-later">${te('arc.later', 'Later')}</button>
+              <button class="reader__btn e-backarc">${te('arc.backToArc', 'Back to arc')}</button>
             </div>
           </div>
         </div>`;
@@ -1273,7 +1297,7 @@
       els.end.querySelector('.e-later').onclick = () => {
         arcDismissed = m.issue.id;
         els.end.hidden = true;
-        els.nextbtn.innerHTML = `Next in arc ${icon('arrow-right')}`;
+        els.nextbtn.innerHTML = `${te('nextInArc', 'Next in arc')} ${icon('arrow-right')}`;
         els.next.hidden = false;
       };
       els.end.querySelector('.e-backarc').onclick = () => {
@@ -1292,18 +1316,18 @@
 
     function showSeriesEndCard() {
       const m = manifest;
-      const finished = `You finished ${escapeHtml(m.series.title)} #${escapeHtml(String(m.issue.number ?? '?'))}`;
+      const finished = te('end.youFinished', 'You finished {issue}', { issue: `${m.series.title} #${m.issue.number ?? '?'}` });
       let body;
       if (m.next) {
         body = `
           <img src="/api/reader/issue/${m.next}/page/0?w=400" alt="" loading="lazy">
           <div class="reader__endinfo">
             <small>${finished}</small>
-            <b>Up next</b>
+            <b>${te('end.upNext', 'Up next')}</b>
             <div class="reader__endbtns">
-              <button class="reader__nextbtn e-next">Next issue ${icon('arrow-right')}</button>
-              <button class="reader__btn e-reread">${icon('rotate-ccw')} Re-read</button>
-              <button class="reader__btn e-back">Back to series</button>
+              <button class="reader__nextbtn e-next">${te('nextIssue', 'Next issue')} ${icon('arrow-right')}</button>
+              <button class="reader__btn e-reread">${icon('rotate-ccw')} ${te('end.reread', 'Re-read')}</button>
+              <button class="reader__btn e-back">${te('end.backToSeries', 'Back to series')}</button>
             </div>
           </div>`;
         prewarm();
@@ -1311,10 +1335,10 @@
         body = `
           <div class="reader__endinfo">
             <small>${finished}</small>
-            <b>End of series</b>
+            <b>${te('end.endOfSeries', 'End of series')}</b>
             <div class="reader__endbtns">
-              <button class="reader__btn e-reread">${icon('rotate-ccw')} Re-read</button>
-              <button class="reader__btn e-back">Back to series</button>
+              <button class="reader__btn e-reread">${icon('rotate-ccw')} ${te('end.reread', 'Re-read')}</button>
+              <button class="reader__btn e-back">${te('end.backToSeries', 'Back to series')}</button>
             </div>
           </div>`;
       }
@@ -1343,14 +1367,14 @@
       els.info.innerHTML = `
         <div class="reader__infobox" role="document">
           <div class="reader__panelhead">${escapeHtml(manifest.series.title)} #${escapeHtml(String(manifest.issue.number ?? '?'))}
-            <button class="reader__btn i-close" aria-label="Close info">${icon('close')}</button></div>
+            <button class="reader__btn i-close" aria-label="${te('info.close', 'Close info')}">${icon('close')}</button></div>
           <div class="reader__infobody">
             ${inf?.name ? `<h3>${escapeHtml(inf.name)}</h3>` : ''}
-            ${inf?.cover_date || inf?.store_date ? `<div class="reader__infodates">${inf.store_date ? `In stores ${escapeHtml(inf.store_date)}` : ''}${inf.store_date && inf.cover_date ? ' · ' : ''}${inf.cover_date ? `Cover date ${escapeHtml(inf.cover_date)}` : ''}</div>` : ''}
+            ${inf?.cover_date || inf?.store_date ? `<div class="reader__infodates">${inf.store_date ? te('info.inStores', 'In stores {date}', { date: inf.store_date }) : ''}${inf.store_date && inf.cover_date ? ' · ' : ''}${inf.cover_date ? te('info.coverDate', 'Cover date {date}', { date: inf.cover_date }) : ''}</div>` : ''}
             ${desc ? `<p>${escapeHtml(desc)}</p>` : ''}
-            ${credits ? `<div class="reader__bmhead">Credits</div><div class="reader__credits">${credits}</div>` : ''}
-            ${!inf ? '<p class="reader__panelempty">No ComicVine metadata for this issue yet — use “Tag files” on the series.</p>' : ''}
-            ${safeCvUrl ? `<a class="reader__extlink" href="${escapeHtml(safeCvUrl)}" target="_blank" rel="noreferrer">View on ComicVine ${icon('external-link')}</a>` : ''}
+            ${credits ? `<div class="reader__bmhead">${te('info.credits', 'Credits')}</div><div class="reader__credits">${credits}</div>` : ''}
+            ${!inf ? `<p class="reader__panelempty">${te('info.noMetadata', 'No metadata for this issue yet — use “Tag files” on the series.')}</p>` : ''}
+            ${safeCvUrl ? `<a class="reader__extlink" href="${escapeHtml(safeCvUrl)}" target="_blank" rel="noreferrer">${te('info.viewSource', 'View source page')} ${icon('external-link')}</a>` : ''}
           </div>
         </div>`;
       els.info.querySelector('.i-close').onclick = () => { els.info.hidden = true; };
@@ -1367,17 +1391,17 @@
       els.hints.innerHTML = `
         <div class="reader__hintbox">
           <div class="reader__hintzones" aria-hidden="true">
-            <div>${icon('chevron-left')}<small>${settings.tapBoth ? 'forward' : 'back'}</small></div>
-            <div>${icon('menu')}<small>menu</small></div>
-            <div>${icon('chevron-right')}<small>forward</small></div>
+            <div>${icon('chevron-left')}<small>${settings.tapBoth ? te('hints.forward', 'forward') : te('hints.back', 'back')}</small></div>
+            <div>${icon('menu')}<small>${te('hints.menu', 'menu')}</small></div>
+            <div>${icon('chevron-right')}<small>${te('hints.forward', 'forward')}</small></div>
           </div>
           <div class="reader__hintkeys">
-            <div><b>← →  space</b> turn pages · <b>swipe</b> works too</div>
-            <div><b>d</b> double-page · <b>w</b> webtoon · <b>m</b> reading direction</div>
-            <div><b>o</b> offset spreads · <b>b</b> bookmark · <b>r</b> rotate · <b>i</b> issue info · <b>t</b> thumbnails</div>
-            <div><b>s</b> auto-scroll (webtoon) · <b>f</b> fullscreen · <b>+ −</b> zoom (pinch & double-tap too) · <b>?</b> this help</div>
+            <div>${trh('hints.turn', '<b>← →  space</b> turn pages · <b>swipe</b> works too')}</div>
+            <div>${trh('hints.modes', '<b>d</b> double-page · <b>w</b> webtoon · <b>m</b> reading direction')}</div>
+            <div>${trh('hints.tools', '<b>o</b> offset spreads · <b>b</b> bookmark · <b>r</b> rotate · <b>i</b> issue info · <b>t</b> thumbnails')}</div>
+            <div>${trh('hints.more', '<b>s</b> auto-scroll (webtoon) · <b>f</b> fullscreen · <b>+ −</b> zoom (pinch & double-tap too) · <b>?</b> this help')}</div>
           </div>
-          <button class="reader__nextbtn h-close">Got it</button>
+          <button class="reader__nextbtn h-close">${te('hints.gotIt', 'Got it')}</button>
         </div>`;
       els.hints.querySelector('.h-close').onclick = () => { els.hints.hidden = true; };
       els.hints.onclick = (e) => { if (e.target === els.hints) els.hints.hidden = true; };
@@ -1397,7 +1421,7 @@
         } else if (d.type === 'cache-done') {
           if (d.removed) offlineIssues.delete(d.issueId); else offlineIssues.add(d.issueId);
           syncOfflineButton();
-          toast(d.removed ? 'Offline copy removed' : 'Available offline ✓');
+          toast(d.removed ? tr('offline.removed', 'Offline copy removed') : tr('offline.available', 'Available offline ✓'));
         }
       });
       // Which issues are already cached? Ask the Cache API directly.
@@ -1415,11 +1439,11 @@
       els.offline.classList.remove('is-loading');
       els.offline.innerHTML = cached ? icon('check') : icon('download');
       els.offline.classList.toggle('is-on', cached);
-      els.offline.title = cached ? 'Remove offline copy' : 'Download for offline';
+      els.offline.title = cached ? tr('offline.remove', 'Remove offline copy') : tr('offline.download', 'Download for offline');
     }
     function toggleOffline() {
       const ctrl = navigator.serviceWorker?.controller;
-      if (!ctrl) return toast('Offline support initializing — try again in a moment');
+      if (!ctrl) return toast(tr('offline.initializing', 'Offline support initializing — try again in a moment'));
       const cached = offlineIssues.has(manifest.issue.id);
       ctrl.postMessage({
         type: cached ? 'uncache-issue' : 'cache-issue',
@@ -1434,13 +1458,13 @@
     // ---------- continue-reading panel ----------
     async function openContinuePanel() {
       if (!overlay) build();
-      overlay.querySelector('.reader__paneltitle').textContent = 'Continue reading';
+      overlay.querySelector('.reader__paneltitle').textContent = tr('continueReading', 'Continue reading');
       let r;
       try { r = await api.get('/api/reader/continue'); } catch { r = { items: [] } }
       const items = (r && r.items) || [];
       els.panellist.innerHTML = '';
       if (!items.length) {
-        els.panellist.innerHTML = '<div class="reader__panelempty">Nothing in progress — open any owned issue with its ▶ button.</div>';
+        els.panellist.innerHTML = `<div class="reader__panelempty">${te('panels.nothingInProgress', 'Nothing in progress — open any owned issue with its ▶ button.')}</div>`;
       }
       for (const it of items) {
         const pct = it.pages ? Math.round((it.page / it.pages) * 100) : 0;
@@ -1452,7 +1476,7 @@
             <b>${escapeHtml(it.series)} #${escapeHtml(String(it.issue_number ?? '?'))}</b>
             <small>${escapeHtml(it.title || '')}</small>
             <span class="reader__contbar"><span style="width:${pct}%"></span></span>
-            <small>page ${it.page + 1} of ${it.pages} · ${pct}%</small>
+            <small>${te('panels.pageOf', 'page {page} of {pages} · {pct}%', { page: it.page + 1, pages: it.pages, pct })}</small>
           </span>`;
         el.onclick = () => { els.panel.hidden = true; openReader(it.issue_id); };
         els.panellist.appendChild(el);
@@ -1476,7 +1500,7 @@
           <span class="reader__continfo">
             <b>${escapeHtml(it.series || '?')} #${escapeHtml(String(it.issue_number ?? '?'))}</b>
             <small>${escapeHtml(it.title || '')}</small>
-            ${it.page != null ? `<small>bookmarked p. ${it.page + 1}</small>` : ''}
+            ${it.page != null ? `<small>${te('panels.bookmarkedPage', 'bookmarked p. {n}', { n: it.page + 1 })}</small>` : ''}
           </span>`;
         el.onclick = () => { els.panel.hidden = true; onClick(it); };
         els.panellist.appendChild(el);
@@ -1485,15 +1509,15 @@
     }
     async function openLaterPanel() {
       let r; try { r = await api.get('/api/reader/later'); } catch { r = { items: [] } }
-      openListPanel('Read later', (r && r.items) || [],
+      openListPanel(tr('readLater', 'Read later'), (r && r.items) || [],
         (it) => openReader(it.issue_id),
-        'Nothing saved — use the Read later button in the reader (or the “Read later” row action) to add issues.');
+        te('panels.nothingSaved', 'Nothing saved — use the Read later button in the reader (or the “Read later” row action) to add issues.'));
     }
     async function openBookmarksPanel() {
       let r; try { r = await api.get('/api/reader/bookmarks'); } catch { r = { items: [] } }
-      openListPanel('My bookmarks', (r && r.items) || [],
+      openListPanel(tr('myBookmarks', 'My bookmarks'), (r && r.items) || [],
         (it) => openReader(it.issue_id, it.page),
-        'No bookmarks yet — press b on a page while reading.',
+        te('panels.noBookmarks', 'No bookmarks yet — press b on a page while reading.'),
         (it) => it.page || 0);
     }
 
@@ -1502,12 +1526,12 @@
     // this-month totals, a 30-day bar strip, the streak, top series.
     async function openStatsPanel() {
       if (!overlay) build();
-      overlay.querySelector('.reader__paneltitle').textContent = 'Reading stats';
+      overlay.querySelector('.reader__paneltitle').textContent = tr('readingStats', 'Reading stats');
       let st = null;
       try { st = await api.get('/api/reader/stats'); } catch { /* render empty state */ }
       els.panellist.innerHTML = '';
       if (!st || !st.totals || (!st.totals.pages && !st.totals.completed)) {
-        els.panellist.innerHTML = '<div class="reader__panelempty">No reading yet — stats build up as you read.</div>';
+        els.panellist.innerHTML = `<div class="reader__panelempty">${te('stats.noReading', 'No reading yet — stats build up as you read.')}</div>`;
       } else {
         // 30-day strip: one bar per day, scaled to the busiest day.
         const byDay = new Map((st.last30 || []).map((d) => [d.day, d]));
@@ -1519,20 +1543,20 @@
         }
         const max = Math.max(1, ...days.map((d) => d.pages));
         const bars = days.map((d) =>
-          `<span class="reader__statbar" title="${d.key}: ${d.pages} page${d.pages === 1 ? '' : 's'}"><span style="height:${Math.round((d.pages / max) * 100)}%"></span></span>`).join('');
+          `<span class="reader__statbar" title="${d.key}: ${te('stats.nPages', { one: '{count} page', other: '{count} pages' }, { count: d.pages })}"><span style="height:${Math.round((d.pages / max) * 100)}%"></span></span>`).join('');
         const top = (st.topSeries || []).map((t) =>
           `<div class="reader__stattop"><span>${escapeHtml(t.series || '?')}</span><b>${t.finished}</b></div>`).join('');
         els.panellist.innerHTML = `
           <div class="reader__stats">
             <div class="reader__statgrid">
-              <div class="reader__stat"><b>${st.totals.pages.toLocaleString()}</b><small>pages read</small></div>
-              <div class="reader__stat"><b>${st.totals.completed.toLocaleString()}</b><small>issues finished</small></div>
-              <div class="reader__stat"><b>${st.month.pages.toLocaleString()}</b><small>pages this month</small></div>
-              <div class="reader__stat"><b>${st.streak}</b><small>day streak${st.streak ? ' 🔥' : ''}</small></div>
+              <div class="reader__stat"><b>${st.totals.pages.toLocaleString()}</b><small>${te('stats.pagesRead', 'pages read')}</small></div>
+              <div class="reader__stat"><b>${st.totals.completed.toLocaleString()}</b><small>${te('stats.issuesFinished', 'issues finished')}</small></div>
+              <div class="reader__stat"><b>${st.month.pages.toLocaleString()}</b><small>${te('stats.pagesThisMonth', 'pages this month')}</small></div>
+              <div class="reader__stat"><b>${st.streak}</b><small>${te('stats.dayStreak', 'day streak')}${st.streak ? ' 🔥' : ''}</small></div>
             </div>
-            <div class="reader__stath">Last 30 days</div>
+            <div class="reader__stath">${te('stats.last30', 'Last 30 days')}</div>
             <div class="reader__statbars">${bars}</div>
-            ${top ? `<div class="reader__stath">Most finished</div>${top}` : ''}
+            ${top ? `<div class="reader__stath">${te('stats.mostFinished', 'Most finished')}</div>${top}` : ''}
           </div>`;
       }
       showPanelOverlay();
@@ -1544,14 +1568,15 @@
     // dismissible, and "Reading rails…" lists them all. `def` is the fallback
     // when prefs can't be fetched; the server holds the real defaults.
     const SHELVES = [
-      { key: 'continue',  pref: 'showContinue',  title: 'Continue reading',    url: '/api/reader/continue',          def: true, bar: true },
-      { key: 'next',      pref: 'showNext',       title: 'Next up',             url: '/api/reader/next-up',           def: true },
-      { key: 'new',       pref: 'showNew',        title: 'New in your library', url: '/api/reader/new-in-library',    def: true },
-      { key: 'later',     pref: 'showLater',      title: 'Read later',          url: '/api/reader/later',             def: false },
-      { key: 'finished',  pref: 'showFinished',   title: 'Recently finished',   url: '/api/reader/recently-finished', def: false },
-      { key: 'startnew',  pref: 'showStartNew',   title: 'Start a new series',  url: '/api/reader/start-new',         def: false },
-      { key: 'bookmarks', pref: 'showBookmarks',  title: 'Bookmarks',           url: '/api/reader/bookmarks',         def: false, page: (it) => it.page || 0, dedupe: true },
+      { key: 'continue',  pref: 'showContinue',  tkey: 'continueReading',    title: 'Continue reading',    url: '/api/reader/continue',          def: true, bar: true },
+      { key: 'next',      pref: 'showNext',       tkey: 'shelves.nextUp',     title: 'Next up',             url: '/api/reader/next-up',           def: true },
+      { key: 'new',       pref: 'showNew',        tkey: 'shelves.newInLibrary', title: 'New in your library', url: '/api/reader/new-in-library',  def: true },
+      { key: 'later',     pref: 'showLater',      tkey: 'readLater',          title: 'Read later',          url: '/api/reader/later',             def: false },
+      { key: 'finished',  pref: 'showFinished',   tkey: 'shelves.recentlyFinished', title: 'Recently finished', url: '/api/reader/recently-finished', def: false },
+      { key: 'startnew',  pref: 'showStartNew',   tkey: 'shelves.startNew',   title: 'Start a new series',  url: '/api/reader/start-new',         def: false },
+      { key: 'bookmarks', pref: 'showBookmarks',  tkey: 'bookmarks',          title: 'Bookmarks',           url: '/api/reader/bookmarks',         def: false, page: (it) => it.page || 0, dedupe: true },
     ];
+    const shelfTitle = (s) => tr(s.tkey, s.title);
     let homePrefs = null;
     const shelfOn = (s) => (homePrefs && s.pref in homePrefs) ? homePrefs[s.pref] !== false : s.def;
     async function renderHomeRails() {
@@ -1604,11 +1629,11 @@
       const head = document.createElement('div');
       head.className = 'reader-rail__head';
       const h = document.createElement('span');
-      h.className = 'reader-rail__title'; h.textContent = shelf.title;
+      h.className = 'reader-rail__title'; h.textContent = shelfTitle(shelf);
       const hide = document.createElement('button');
       hide.className = 'reader-rail__hide';
-      hide.title = 'Hide this shelf — turn it back on from “Reading rails…”';
-      hide.setAttribute('aria-label', 'Hide ' + shelf.title);
+      hide.title = tr('shelves.hideTitle', 'Hide this shelf — turn it back on from “Reading shelves”');
+      hide.setAttribute('aria-label', tr('shelves.hide', 'Hide {shelf}', { shelf: shelfTitle(shelf) }));
       hide.innerHTML = hicon('close', { size: 16 }, '×');
       hide.onclick = () => hideShelf(shelf);
       head.append(h, hide);
@@ -1628,7 +1653,7 @@
         <span class="reader-rail__label"><b>${escapeHtml(it.series || '?')}</b> #${escapeHtml(String(it.issue_number ?? '?'))}</span>
         ${shelf.bar
           ? `<span class="reader-rail__bar"><span style="width:${pct}%"></span></span>`
-          : `<small class="reader-rail__sub">${escapeHtml(it.title || shelf.title)}</small>`}`;
+          : `<small class="reader-rail__sub">${escapeHtml(it.title || shelfTitle(shelf))}</small>`}`;
       const page = shelf.page ? shelf.page(it) : null;
       el.onclick = () => openReader(it.issue_id, page);
       // Left-click reads (the common path stays one click). Right-click, or a
@@ -1660,7 +1685,7 @@
       menu.className = 'reader-rail__menu';
       const go = document.createElement('button');
       go.className = 'reader-rail__menu-item';
-      go.innerHTML = `${hicon('library', { size: 15 }, '')}<span>Go to series</span>`;
+      go.innerHTML = `${hicon('library', { size: 15 }, '')}<span>${te('goToSeries', 'Go to series')}</span>`;
       go.onclick = async (e) => {
         e.stopPropagation();
         closeCardMenu();
@@ -1669,7 +1694,7 @@
           try { sid = (await api.get(`/api/reader/issue/${it.issue_id}`))?.series?.id ?? null; } catch { /* fall through */ }
         }
         if (sid != null && api.openSeries) api.openSeries(sid);
-        else if (api.toast) api.toast("That issue is not linked to a series in your library.", "info");
+        else if (api.toast) api.toast(tr('shelves.notLinked', 'That issue is not linked to a series in your library.'), 'info');
       };
       menu.appendChild(go);
       document.body.appendChild(menu);
@@ -1702,10 +1727,10 @@
         card = document.createElement('section');
         card.className = 'settings-section';
         card.id = 'reader-rails-prefs';
-        card.innerHTML = '<p class="modal__subhead">Reading shelves</p>' +
-          '<p class="modal__note">Which shelves appear at the top of your library.</p>' +
+        card.innerHTML = `<p class="modal__subhead">${te('profile.shelves', 'Reading shelves')}</p>` +
+          `<p class="modal__note">${te('profile.shelvesNote', 'Which shelves appear at the top of your library.')}</p>` +
           '<div class="reader__rails-prefs">' +
-          SHELVES.map((s) => `<label class="reader__rails-row"><input type="checkbox" data-pref="${s.pref}"> ${escapeHtml(s.title)}</label>`).join('') +
+          SHELVES.map((s) => `<label class="reader__rails-row"><input type="checkbox" data-pref="${s.pref}"> ${te(s.tkey, s.title)}</label>`).join('') +
           '</div>';
         slot.appendChild(card);
         card.querySelectorAll('input[data-pref]').forEach((cb) => {
@@ -1729,36 +1754,36 @@
       card.className = 'settings-section';
       card.id = 'reader-defaults-prefs';
       card.innerHTML =
-        '<p class="modal__subhead">Reading defaults</p>' +
-        '<p class="modal__note">Used when you open a comic that has no saved layout of its own.</p>' +
-        '<label class="field"><span>Default layout</span><select id="reader-def-mode">' +
-          '<option value="single">Single page</option>' +
-          '<option value="double">Double page</option>' +
-          '<option value="webtoon">Webtoon (long strip)</option>' +
+        `<p class="modal__subhead">${te('profile.defaults', 'Reading defaults')}</p>` +
+        `<p class="modal__note">${te('profile.defaultsNote', 'Used when you open a comic that has no saved layout of its own.')}</p>` +
+        `<label class="field"><span>${te('profile.defaultLayout', 'Default layout')}</span><select id="reader-def-mode">` +
+          `<option value="single">${te('profile.singlePage', 'Single page')}</option>` +
+          `<option value="double">${te('profile.doublePage', 'Double page')}</option>` +
+          `<option value="webtoon">${te('profile.webtoon', 'Webtoon (long strip)')}</option>` +
         '</select></label>' +
-        '<label class="field"><span>Page fit</span><select id="reader-def-fit">' +
-          '<option value="height">Fit height</option>' +
-          '<option value="width">Fit width</option>' +
-          '<option value="orig">Original size</option>' +
+        `<label class="field"><span>${te('profile.pageFit', 'Page fit')}</span><select id="reader-def-fit">` +
+          `<option value="height">${te('profile.fitHeight', 'Fit height')}</option>` +
+          `<option value="width">${te('profile.fitWidth', 'Fit width')}</option>` +
+          `<option value="orig">${te('profile.originalSize', 'Original size')}</option>` +
         '</select></label>' +
-        '<label class="field"><span>Eye comfort</span><select id="reader-def-filter">' +
-          '<option value="none">None</option>' +
-          '<option value="invert">Invert (dark)</option>' +
-          '<option value="grayscale">Grayscale</option>' +
-          '<option value="sepia">Sepia</option>' +
+        `<label class="field"><span>${te('profile.eyeComfort', 'Eye comfort')}</span><select id="reader-def-filter">` +
+          `<option value="none">${te('profile.none', 'None')}</option>` +
+          `<option value="invert">${te('profile.invertDark', 'Invert (dark)')}</option>` +
+          `<option value="grayscale">${te('profile.grayscale', 'Grayscale')}</option>` +
+          `<option value="sepia">${te('settings.filterSepia', 'Sepia')}</option>` +
         '</select></label>' +
-        '<label class="field"><span>Count as read at</span><select id="reader-def-threshold">' +
-          '<option value="100">Last page</option>' +
+        `<label class="field"><span>${te('profile.countReadAt', 'Count as read at')}</span><select id="reader-def-threshold">` +
+          `<option value="100">${te('profile.lastPage', 'Last page')}</option>` +
           '<option value="95">95%</option>' +
           '<option value="90">90%</option>' +
           '<option value="85">85%</option>' +
           '<option value="80">80%</option>' +
         '</select></label>' +
-        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-rtl"> Right-to-left (manga)</label>' +
-        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-datasaver"> Data saver (load lighter pages)</label>' +
-        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-trim"> Trim page margins</label>' +
-        (('wakeLock' in navigator) ? '<label class="reader__rails-row"><input type="checkbox" id="reader-def-awake"> Keep the screen awake while reading</label>' : '') +
-        '<label class="reader__rails-row"><input type="checkbox" id="reader-def-incognito"> Always read incognito (don’t record progress, history, or stats)</label>';
+        `<label class="reader__rails-row"><input type="checkbox" id="reader-def-rtl"> ${te('profile.rtlManga', 'Right-to-left (manga)')}</label>` +
+        `<label class="reader__rails-row"><input type="checkbox" id="reader-def-datasaver"> ${te('profile.dataSaver', 'Data saver (load lighter pages)')}</label>` +
+        `<label class="reader__rails-row"><input type="checkbox" id="reader-def-trim"> ${te('profile.trimMargins', 'Trim page margins')}</label>` +
+        (('wakeLock' in navigator) ? `<label class="reader__rails-row"><input type="checkbox" id="reader-def-awake"> ${te('profile.keepAwake', 'Keep the screen awake while reading')}</label>` : '') +
+        `<label class="reader__rails-row"><input type="checkbox" id="reader-def-incognito"> ${te('profile.alwaysIncognito', 'Always read incognito (don’t record progress, history, or stats)')}</label>`;
       slot.appendChild(card);
       const $ = (sel) => card.querySelector(sel);
       const mode = $('#reader-def-mode'), fit = $('#reader-def-fit'), filter = $('#reader-def-filter');
@@ -1815,47 +1840,47 @@
 
     async function openPanelStudio(issue, targetPage) {
       const id = issue.cv_issue_id;
-      const label = `${issue.series_title || issue.series || ''} #${issue.issue_number || ''}`.trim() || `Issue ${id}`;
+      const label = `${issue.series_title || issue.series || ''} #${issue.issue_number || ''}`.trim() || tr('studio.issueN', 'Issue {id}', { id });
       const root = document.createElement('div');
       root.className = 'pstudio';
       root.innerHTML = `
         <div class="pstudio__head">
-          <strong>Panel layout — ${label.replace(/[<>&]/g, '')}</strong>
+          <strong>${te('studio.title', 'Panel layout — {label}', { label })}</strong>
           <span class="pstudio__status"></span>
           <span style="flex:1"></span>
-          <button class="pstudio__btn ps-db" title="Browse every panel layout stored in this server's database">Database</button>
-          <button class="pstudio__btn ps-redetect" title="Discard cached detection and run the current model again">Re-detect</button>
-          <button class="pstudio__btn ps-saveall" disabled>Save all</button>
-          <button class="pstudio__btn ps-close">Close</button>
+          <button class="pstudio__btn ps-db" title="${te('studio.databaseTitle', "Browse every panel layout stored in this server's database")}">${te('studio.database', 'Database')}</button>
+          <button class="pstudio__btn ps-redetect" title="${te('studio.redetectTitle', 'Discard cached detection and run the current model again')}">${te('studio.redetect', 'Re-detect')}</button>
+          <button class="pstudio__btn ps-saveall" disabled>${te('studio.saveAll', 'Save all')}</button>
+          <button class="pstudio__btn ps-close">${te('studio.close', 'Close')}</button>
         </div>
         <div class="pstudio__body">
           <div class="pstudio__side">
             <div class="pstudio__chips">
-              <button data-f="all" class="is-on">All</button>
-              <button data-f="none">No layout</button>
-              <button data-f="edited">Edited</button>
-              <button data-f="unreviewed">Unreviewed</button>
+              <button data-f="all" class="is-on">${te('studio.chipAll', 'All')}</button>
+              <button data-f="none">${te('studio.chipNone', 'No layout')}</button>
+              <button data-f="edited">${te('studio.chipEdited', 'Edited')}</button>
+              <button data-f="unreviewed">${te('studio.chipUnreviewed', 'Unreviewed')}</button>
             </div>
             <div class="pstudio__rail"></div>
           </div>
           <div class="pstudio__main">
             <div class="pstudio__canvas"><div class="pstudio__zoombox"><img class="pstudio__img" draggable="false"><div class="pstudio__edit"></div></div></div>
             <div class="pstudio__tools">
-              <button class="pstudio__btn" data-act="add" title="Add a panel (or drag on empty page area to draw one)">Add</button>
-              <button class="pstudio__btn" data-act="del" title="Delete selected (Del)">Delete</button>
-              <button class="pstudio__btn" data-act="earlier" title="Read earlier">&#9664;</button>
-              <button class="pstudio__btn" data-act="later" title="Read later">&#9654;</button>
-              <button class="pstudio__btn" data-act="order" title="Tap panels in reading order">Set order</button>
-              <button class="pstudio__btn" data-act="snap" title="Snap edges to the drawn borders">Snap</button>
-              <button class="pstudio__btn" data-act="magnet" title="Auto-snap newly drawn panels to borders">Auto-snap</button>
-              <button class="pstudio__btn" data-act="copy" title="Copy this page's layout">Copy</button>
-              <button class="pstudio__btn" data-act="paste" title="Paste the copied layout onto this page">Paste</button>
-              <button class="pstudio__btn" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
-              <button class="pstudio__btn" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
-              <button class="pstudio__btn" data-act="preview" title="Play the guided tour of this layout">Preview</button>
-              <button class="pstudio__btn" data-act="review" title="Step through pages — Space confirms each layout">Review</button>
-              <button class="pstudio__btn" data-act="pagemode" title="No panels — read as a full page">Whole page</button>
-              <button class="pstudio__btn" data-act="auto" title="Discard edits, back to automatic detection">Auto</button>
+              <button class="pstudio__btn" data-act="add" title="${te('studio.addTitle', 'Add a panel (or drag on empty page area to draw one)')}">${te('studio.add', 'Add')}</button>
+              <button class="pstudio__btn" data-act="del" title="${te('studio.deleteTitle', 'Delete selected (Del)')}">${te('studio.delete', 'Delete')}</button>
+              <button class="pstudio__btn" data-act="earlier" title="${te('studio.readEarlier', 'Read earlier')}">&#9664;</button>
+              <button class="pstudio__btn" data-act="later" title="${te('studio.readLater', 'Read later')}">&#9654;</button>
+              <button class="pstudio__btn" data-act="order" title="${te('studio.orderTitle', 'Tap panels in reading order')}">${te('studio.setOrder', 'Set order')}</button>
+              <button class="pstudio__btn" data-act="snap" title="${te('studio.snapTitle', 'Snap edges to the drawn borders')}">${te('studio.snap', 'Snap')}</button>
+              <button class="pstudio__btn" data-act="magnet" title="${te('studio.magnetTitle', 'Auto-snap newly drawn panels to borders')}">${te('studio.autoSnap', 'Auto-snap')}</button>
+              <button class="pstudio__btn" data-act="copy" title="${te('studio.copyTitle', "Copy this page's layout")}">${te('studio.copy', 'Copy')}</button>
+              <button class="pstudio__btn" data-act="paste" title="${te('studio.pasteTitle', 'Paste the copied layout onto this page')}">${te('studio.paste', 'Paste')}</button>
+              <button class="pstudio__btn" data-act="undo" title="${te('studio.undoTitle', 'Undo (Ctrl+Z)')}">${te('studio.undo', 'Undo')}</button>
+              <button class="pstudio__btn" data-act="redo" title="${te('studio.redoTitle', 'Redo (Ctrl+Shift+Z)')}">${te('studio.redo', 'Redo')}</button>
+              <button class="pstudio__btn" data-act="preview" title="${te('studio.previewTitle', 'Play the guided tour of this layout')}">${te('studio.preview', 'Preview')}</button>
+              <button class="pstudio__btn" data-act="review" title="${te('studio.reviewTitle', 'Step through pages — Space confirms each layout')}">${te('studio.review', 'Review')}</button>
+              <button class="pstudio__btn" data-act="pagemode" title="${te('studio.pageModeTitle', 'No panels — read as a full page')}">${te('studio.wholePage', 'Whole page')}</button>
+              <button class="pstudio__btn" data-act="auto" title="${te('studio.autoTitle', 'Discard edits, back to automatic detection')}">${te('studio.auto', 'Auto')}</button>
             </div>
           </div>
         </div>`;
@@ -1892,7 +1917,7 @@
 
       const deep = (items) => items.map((it) => ({ pts: it.pts.map((p) => [...p]), free: it.free }));
       const dirty = () => staged.size + reverted.size > 0;
-      const syncSave = () => { saveBtn.disabled = !dirty(); saveBtn.textContent = dirty() ? `Save all (${staged.size + reverted.size})` : 'Save all'; };
+      const syncSave = () => { saveBtn.disabled = !dirty(); saveBtn.textContent = dirty() ? tr('studio.saveAllN', 'Save all ({count})', { count: staged.size + reverted.size }) : tr('studio.saveAll', 'Save all'); };
       const hist = () => { if (!history.has(cur)) history.set(cur, { undo: [], redo: [] }); return history.get(cur); };
 
       function quadsFor(n) {
@@ -1930,19 +1955,19 @@
       }
 
       async function loadPanels() {
-        status.textContent = 'Loading layout…';
+        status.textContent = tr('studio.loadingLayout', 'Loading layout…');
         for (;;) {
           const r = await fetch(`/api/reader/issue/${id}/panels`);
-          if (!r.ok) { status.textContent = 'No file for this issue'; return false; }
+          if (!r.ok) { status.textContent = tr('studio.noFile', 'No file for this issue'); return false; }
           const j = await r.json();
           if (j.ready) { pages = j.pages; setHint(); return true; }
-          status.textContent = j.total ? `Detecting panels… ${j.done ?? 0}/${j.total}` : 'Detecting panels…';
+          status.textContent = j.total ? tr('studio.detectingProgress', 'Detecting panels… {done}/{total}', { done: j.done ?? 0, total: j.total }) : tr('guided.detecting', 'Detecting panels…');
           await new Promise((ok) => setTimeout(ok, 1500));
         }
       }
       const setHint = (msg) => {
         if (reviewMode && !msg) return reviewProgress();
-        status.textContent = msg || 'Drag corners to resize · double-tap unlocks corners · drag empty space to draw a panel';
+        status.textContent = msg || tr('studio.hint', 'Drag corners to resize · double-tap unlocks corners · drag empty space to draw a panel');
       };
 
       // ---- rail + filter chips
@@ -1963,8 +1988,8 @@
           const tick = isReviewed(p) ? '<i class="pstudio__tick">&#10003;</i>' : '';
           return `<button class="pstudio__thumb${p.page === cur ? ' is-cur' : ''}${mark}" data-page="${p.page}">
             <img loading="lazy" src="/api/reader/issue/${id}/page/${p.page}?w=140" alt="">
-            <span>${p.page + 1}</span><em>${count ? count + 'p' : 'page'}</em>${tick}</button>`;
-        }).join('') || '<div class="pstudio__railempty">No pages match</div>';
+            <span>${p.page + 1}</span><em>${count ? te('studio.panelsAbbrev', '{count}p', { count }) : te('studio.pageWord', 'page')}</em>${tick}</button>`;
+        }).join('') || `<div class="pstudio__railempty">${te('studio.noPagesMatch', 'No pages match')}</div>`;
         const counts = {
           all: pages.length,
           none: pages.filter((p) => (staged.has(p.page) ? staged.get(p.page).length : (p.panels || []).length) === 0).length,
@@ -1973,7 +1998,7 @@
         };
         chips.querySelectorAll('button').forEach((b) => {
           b.classList.toggle('is-on', b.dataset.f === railFilter);
-          b.textContent = `${{ all: 'All', none: 'No layout', edited: 'Edited', unreviewed: 'Unreviewed' }[b.dataset.f]} (${counts[b.dataset.f]})`;
+          b.textContent = `${{ all: tr('studio.chipAll', 'All'), none: tr('studio.chipNone', 'No layout'), edited: tr('studio.chipEdited', 'Edited'), unreviewed: tr('studio.chipUnreviewed', 'Unreviewed') }[b.dataset.f]} (${counts[b.dataset.f]})`;
         });
       }
       chips.addEventListener('click', (e) => {
@@ -2108,7 +2133,7 @@
                 unlocked = true;
               }
             });
-            api.toast?.(unlocked ? 'Corners unlocked — drag them independently' : 'Corners locked — panel squared back to a rectangle', 'info');
+            api.toast?.(unlocked ? tr('studio.cornersUnlocked', 'Corners unlocked — drag them independently') : tr('studio.cornersLocked', 'Corners locked — panel squared back to a rectangle'), 'info');
             e.preventDefault();
             return;
           }
@@ -2182,7 +2207,7 @@
             // A plain click → start placing a free polygon corner by corner.
             sel = -1;
             polyDraft = { pts: [[d.x0, d.y0]], cursor: [d.x0, d.y0] };
-            status.textContent = 'Placing corners — click to add, click the first point to close, Esc cancels';
+            status.textContent = tr('studio.placingCorners', 'Placing corners — click to add, click the first point to close, Esc cancels');
             renderEdit(); syncTools();
           } else renderEdit();
           return;
@@ -2204,7 +2229,7 @@
         });
         if (autoSnap) snapPanel(sel, true);
         setHint();
-        api.toast?.('Panel added', 'ok');
+        api.toast?.(tr('studio.panelAdded', 'Panel added'), 'ok');
       }
       function cancelPolyDraft() {
         polyDraft = null;
@@ -2324,7 +2349,7 @@
             return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
           })();
         });
-        if (!silent) api.toast?.('Snapped to borders', 'ok');
+        if (!silent) api.toast?.(tr('studio.snapped', 'Snapped to borders'), 'ok');
       }
 
       // ---- tap-to-order
@@ -2343,14 +2368,14 @@
           });
           sel = -1;
           setHint();
-          api.toast?.('Reading order updated', 'ok');
-        } else status.textContent = `Tap panels in reading order — ${orderSeq.length}/${total}`;
+          api.toast?.(tr('studio.orderUpdated', 'Reading order updated'), 'ok');
+        } else status.textContent = tr('studio.tapOrder', 'Tap panels in reading order — {done}/{total}', { done: orderSeq.length, total });
       }
 
       // ---- review mode: step through pages, Space = "layout is right, next"
       function reviewProgress() {
         const done = pages.filter(isReviewed).length;
-        status.textContent = `Review — ${done}/${pages.length} confirmed · Space confirms, arrows skip, Esc exits`;
+        status.textContent = tr('studio.reviewProgress', 'Review — {done}/{total} confirmed · Space confirms, arrows skip, Esc exits', { done, total: pages.length });
       }
       function nextUnreviewed(fromPage) {
         const start = pages.findIndex((p) => p.page === fromPage);
@@ -2364,7 +2389,7 @@
         reviewMode = true;
         exitOrderMode(); stopPreview();
         const first = !isReviewed(pages.find((p) => p.page === cur) || {}) ? cur : nextUnreviewed(cur);
-        if (first == null) { reviewMode = false; api.toast?.('Every page is already reviewed', 'ok'); return; }
+        if (first == null) { reviewMode = false; api.toast?.(tr('studio.allReviewed', 'Every page is already reviewed'), 'ok'); return; }
         if (first !== cur) showPage(first);
         reviewMode = true; // showPage cleared transient modes, reassert
         reviewProgress(); syncTools();
@@ -2372,7 +2397,7 @@
       function exitReview(done) {
         reviewMode = false;
         setHint(); syncTools();
-        if (done) api.toast?.('Issue fully reviewed', 'ok');
+        if (done) api.toast?.(tr('studio.fullyReviewed', 'Issue fully reviewed'), 'ok');
       }
       async function confirmCurrent() {
         // Space on a page with pending edits means "MY layout is right" —
@@ -2394,7 +2419,7 @@
             reviewedLocal.add(cur);
             buildRail(); syncSave(); reviewProgress();
           } catch {
-            api.toast?.('Could not save this page — not marked reviewed', 'error');
+            api.toast?.(tr('studio.saveFailedReview', 'Could not save this page — not marked reviewed'), 'error');
             return;
           }
           const nxt = nextUnreviewed(cur);
@@ -2413,7 +2438,7 @@
             reverted.delete(cur);
             syncSave();
           } catch {
-            api.toast?.('Could not revert this page — not marked reviewed', 'error');
+            api.toast?.(tr('studio.revertFailedReview', 'Could not revert this page — not marked reviewed'), 'error');
             return;
           }
         }
@@ -2434,10 +2459,10 @@
       }
       function startPreview() {
         const items = quadsFor(cur);
-        if (!items.length) { api.toast?.('This page reads as a full page', 'info'); return; }
+        if (!items.length) { api.toast?.(tr('studio.fullPageReads', 'This page reads as a full page'), 'info'); return; }
         exitOrderMode();
         previewIdx = 0;
-        status.textContent = 'Previewing reading order — click to stop';
+        status.textContent = tr('studio.previewing', 'Previewing reading order — click to stop');
         renderEdit(); syncTools();
         previewTimer = setInterval(() => {
           previewIdx++;
@@ -2456,15 +2481,15 @@
         else if (act === 'earlier' || act === 'later') {
           const d = act === 'earlier' ? -1 : 1;
           if (sel >= 0) mutate((q) => { const ni = sel + d; if (ni >= 0 && ni < q.length) { [q[sel], q[ni]] = [q[ni], q[sel]]; sel = ni; } });
-        } else if (act === 'order') { if (orderMode) exitOrderMode(); else { orderMode = true; orderSeq = []; sel = -1; status.textContent = `Tap panels in reading order — 0/${quadsFor(cur).length}`; renderEdit(); syncTools(); } }
-        else if (act === 'snap') { if (sel >= 0) snapPanel(sel); else { quadsFor(cur).forEach((_, i) => snapPanel(i, true)); api.toast?.('Snapped all panels', 'ok'); } }
+        } else if (act === 'order') { if (orderMode) exitOrderMode(); else { orderMode = true; orderSeq = []; sel = -1; status.textContent = tr('studio.tapOrder', 'Tap panels in reading order — {done}/{total}', { done: 0, total: quadsFor(cur).length }); renderEdit(); syncTools(); } }
+        else if (act === 'snap') { if (sel >= 0) snapPanel(sel); else { quadsFor(cur).forEach((_, i) => snapPanel(i, true)); api.toast?.(tr('studio.snappedAll', 'Snapped all panels'), 'ok'); } }
         else if (act === 'magnet') {
           autoSnap = !autoSnap;
           localStorage.setItem('pstudioAutoSnap', autoSnap ? '1' : '0');
           syncTools();
-          api.toast?.(autoSnap ? 'Auto-snap on — new panels magnetize to borders' : 'Auto-snap off — panels stay exactly where you draw them', 'info');
+          api.toast?.(autoSnap ? tr('studio.autoSnapOn', 'Auto-snap on — new panels magnetize to borders') : tr('studio.autoSnapOff', 'Auto-snap off — panels stay exactly where you draw them'), 'info');
         }
-        else if (act === 'copy') { clip = deep(quadsFor(cur)); syncTools(); api.toast?.('Layout copied', 'ok'); }
+        else if (act === 'copy') { clip = deep(quadsFor(cur)); syncTools(); api.toast?.(tr('studio.layoutCopied', 'Layout copied'), 'ok'); }
         else if (act === 'paste') { if (clip) { mutate((q) => { q.splice(0, q.length, ...deep(clip)); }); sel = -1; } }
         else if (act === 'undo') undo();
         else if (act === 'redo') redo();
@@ -2508,8 +2533,8 @@
       // a row jumps to that page — reopening the studio on the right issue
       // when the row belongs to a different one.
       let dbEl = null;
-      const DB_FILTERS = [['all', 'All'], ['ml', 'ML'], ['classical', 'Built-in'],
-        ['edited', 'Edited'], ['reviewed', 'Reviewed'], ['pagemode', 'Page mode']];
+      const DB_FILTERS = () => [['all', tr('studio.chipAll', 'All')], ['ml', 'ML'], ['classical', tr('studio.db.builtIn', 'Built-in')],
+        ['edited', tr('studio.chipEdited', 'Edited')], ['reviewed', tr('studio.db.reviewed', 'Reviewed')], ['pagemode', tr('studio.db.pageMode', 'Page mode')]];
       function closeDb() { if (dbEl) { dbEl.remove(); dbEl = null; } }
       function openDb() {
         if (dbEl) return;
@@ -2519,17 +2544,17 @@
         dbEl.innerHTML = `
           <div class="pstudio__db">
             <div class="pstudio__dbhead">
-              <strong>Layout database</strong>
-              <input class="pstudio__dbsearch" type="search" placeholder="Search series / issue…" aria-label="Search stored layouts">
+              <strong>${te('studio.db.title', 'Layout database')}</strong>
+              <input class="pstudio__dbsearch" type="search" placeholder="${te('studio.db.searchPlaceholder', 'Search series / issue…')}" aria-label="${te('studio.db.searchAria', 'Search stored layouts')}">
               <span style="flex:1"></span>
-              <button class="pstudio__btn ps-dbclose">Close</button>
+              <button class="pstudio__btn ps-dbclose">${te('studio.close', 'Close')}</button>
             </div>
             <div class="pstudio__dbchips"></div>
-            <div class="pstudio__dblist"><div class="pstudio__dbempty">Loading…</div></div>
+            <div class="pstudio__dblist"><div class="pstudio__dbempty">${te('studio.db.loading', 'Loading…')}</div></div>
             <div class="pstudio__dbfoot">
-              <button class="pstudio__btn ps-dbprev" disabled>Prev</button>
+              <button class="pstudio__btn ps-dbprev" disabled>${te('studio.db.prev', 'Prev')}</button>
               <span class="pstudio__dbpage"></span>
-              <button class="pstudio__btn ps-dbnext" disabled>Next</button>
+              <button class="pstudio__btn ps-dbnext" disabled>${te('studio.db.next', 'Next')}</button>
             </div>
           </div>`;
         root.appendChild(dbEl);
@@ -2545,29 +2570,29 @@
         function renderList(j) {
           state.rows = j.rows || [];
           state.total = j.total || 0;
-          chipsEl.innerHTML = DB_FILTERS.map(([k, label]) =>
+          chipsEl.innerHTML = DB_FILTERS().map(([k, label]) =>
             `<button data-f="${k}"${k === state.filter ? ' class="is-on"' : ''}>${label} (${j.counts?.[k] ?? 0})</button>`).join('');
           listEl.innerHTML = state.rows.map((r, i) => {
             const name = r.series
               ? `${escapeHtml(r.series)}${r.issue_number != null ? ` #${escapeHtml(String(r.issue_number))}` : ''}`
-              : escapeHtml(r.file || `Issue ${r.issue_id}`);
+              : escapeHtml(r.file || tr('studio.issueN', 'Issue {id}', { id: r.issue_id }));
             const sub = r.title ? ` <small>· ${escapeHtml(r.title)}</small>` : '';
             return `<button class="pstudio__dbrow" data-row="${i}">
-              <span class="pstudio__dbname">${name}${sub} <small>· page ${r.page + 1}</small></span>
-              ${r.engine === 'ml-box-v2' ? badge('ml', 'ML') : r.engine === 'classical' ? badge('', 'Built-in') : ''}
-              ${r.edited ? badge('edited', 'Edited') : ''}
-              ${r.reviewed ? badge('reviewed', 'Reviewed') : ''}
-              ${badge('', r.panels ? `${r.panels} panel${r.panels === 1 ? '' : 's'}` : 'page mode')}
+              <span class="pstudio__dbname">${name}${sub} <small>· ${te('studio.db.pageN', 'page {n}', { n: r.page + 1 })}</small></span>
+              ${r.engine === 'ml-box-v2' ? badge('ml', 'ML') : r.engine === 'classical' ? badge('', te('studio.db.builtIn', 'Built-in')) : ''}
+              ${r.edited ? badge('edited', te('studio.chipEdited', 'Edited')) : ''}
+              ${r.reviewed ? badge('reviewed', te('studio.db.reviewed', 'Reviewed')) : ''}
+              ${badge('', r.panels ? te('studio.db.nPanels', { one: '{count} panel', other: '{count} panels' }, { count: r.panels }) : te('studio.db.pageModeBadge', 'page mode'))}
               <span class="pstudio__dbdate">${r.updated_at ? escapeHtml(String(r.updated_at).slice(0, 10)) : ''}</span>
             </button>`;
-          }).join('') || '<div class="pstudio__dbempty">No stored layouts match</div>';
+          }).join('') || `<div class="pstudio__dbempty">${te('studio.db.noMatch', 'No stored layouts match')}</div>`;
           const to = state.offset + state.rows.length;
-          pageEl.textContent = `${state.total ? state.offset + 1 : 0}–${to} of ${state.total}`;
+          pageEl.textContent = tr('studio.db.range', '{from}–{to} of {total}', { from: state.total ? state.offset + 1 : 0, to, total: state.total });
           prevBtn.disabled = state.offset <= 0;
           nextBtn.disabled = to >= state.total;
         }
         async function loadDb() {
-          listEl.innerHTML = '<div class="pstudio__dbempty">Loading…</div>';
+          listEl.innerHTML = `<div class="pstudio__dbempty">${te('studio.db.loading', 'Loading…')}</div>`;
           const p = new URLSearchParams({ filter: state.filter, offset: String(state.offset), limit: String(state.limit) });
           if (state.q) p.set('q', state.q);
           try {
@@ -2575,7 +2600,7 @@
             if (!r.ok) throw new Error();
             const j = await r.json();
             if (dbEl) renderList(j);
-          } catch { if (dbEl) listEl.innerHTML = '<div class="pstudio__dbempty">Could not load the layout database</div>'; }
+          } catch { if (dbEl) listEl.innerHTML = `<div class="pstudio__dbempty">${te('studio.db.loadFailed', 'Could not load the layout database')}</div>`; }
         }
         chipsEl.addEventListener('click', (e) => {
           const f = e.target?.dataset?.f;
@@ -2606,7 +2631,7 @@
       // ---- save / close / keys
       saveBtn.onclick = async () => {
         saveBtn.disabled = true;
-        status.textContent = 'Saving…';
+        status.textContent = tr('studio.saving', 'Saving…');
         let failed = 0;
         for (const [n, items] of staged) {
           try {
@@ -2629,18 +2654,18 @@
           } catch { failed++; }
         }
         if (!failed) { staged.clear(); reverted.clear(); }
-        status.textContent = failed ? `${failed} page(s) failed to save` : 'Saved';
+        status.textContent = failed ? tr('studio.pagesFailedSave', { one: '{count} page failed to save', other: '{count} pages failed to save' }, { count: failed }) : tr('studio.saved', 'Saved');
         try {
           const r = await fetch(`/api/reader/issue/${id}/panels`);
           const j = await r.json();
           if (j.ready) pages = j.pages;
         } catch { /* rail badges catch up next open */ }
         syncSave(); buildRail(); renderEdit(); syncTools();
-        api.toast?.(failed ? 'Some panel edits failed to save' : 'Panel layouts saved', failed ? 'error' : 'ok');
+        api.toast?.(failed ? tr('studio.someFailed', 'Some panel edits failed to save') : tr('studio.layoutsSaved', 'Panel layouts saved'), failed ? 'error' : 'ok');
       };
 
       function close() {
-        if (dirty() && !window.confirm('Discard unsaved panel edits?')) return false;
+        if (dirty() && !window.confirm(tr('studio.discardConfirm', 'Discard unsaved panel edits?'))) return false;
         stopPreview();
         closeDb();
         document.removeEventListener('keydown', onStudioKey, true);
@@ -2652,16 +2677,16 @@
 
       $s('.ps-redetect').onclick = async () => {
         const wipe = dirty() || pages.some((p) => p.edited);
-        const clearEdits = wipe && window.confirm('Also discard your saved panel edits and reviews for this issue?\n\nOK = wipe everything and re-detect from scratch.\nCancel = re-detect but keep your edits (edits still override the model).');
-        if (!window.confirm('Re-detect all pages with the current model? Cached detection will be recomputed on the next load.')) return;
+        const clearEdits = wipe && window.confirm(tr('studio.redetectWipeConfirm', 'Also discard your saved panel edits and reviews for this issue?\n\nOK = wipe everything and re-detect from scratch.\nCancel = re-detect but keep your edits (edits still override the model).'));
+        if (!window.confirm(tr('studio.redetectConfirm', 'Re-detect all pages with the current model? Cached detection will be recomputed on the next load.'))) return;
         staged.clear(); reverted.clear();
-        status.textContent = 'Re-detecting…';
+        status.textContent = tr('studio.redetecting', 'Re-detecting…');
         try {
           await fetch(`/api/reader/issue/${id}/panels/redetect${clearEdits ? '?edits=clear' : ''}`, { method: 'POST' });
           if (clearEdits) { reviewedLocal.clear(); pages.forEach((p) => { p.edited = false; p.reviewed = false; }); }
           if (await loadPanels()) { buildRail(); showPage(pages[0]?.page ?? 0); }
-          api.toast?.('Re-detected with the current model', 'ok');
-        } catch { status.textContent = 'Re-detect failed'; }
+          api.toast?.(tr('studio.redetected', 'Re-detected with the current model'), 'ok');
+        } catch { status.textContent = tr('studio.redetectFailed', 'Re-detect failed'); }
       };
 
       function onStudioKey(e) {
@@ -2742,7 +2767,7 @@
     api.registerIssueAction?.({
       id: 'reader-panel-studio',
       icon: () => hicon('layout', null, '▦'),
-      title: () => 'Edit panel layout',
+      title: () => tr('actions.editPanelLayout', 'Edit panel layout'),
       when: (i) => canEditPanels() && !!i.owned && !i.corrupt && !!i.cv_issue_id,
       run: (i) => openPanelStudio(i),
     });
@@ -2756,9 +2781,9 @@
       },
       title: (i) => {
         const st = stateOf(i);
-        if (st?.completed) return 'Read again (finished)';
-        if (st && st.page > 0) return `Resume — page ${st.page + 1} of ${st.pages}`;
-        return 'Read';
+        if (st?.completed) return tr('actions.readAgain', 'Read again (finished)');
+        if (st && st.page > 0) return tr('actions.resume', 'Resume — page {page} of {pages}', { page: st.page + 1, pages: st.pages });
+        return tr('actions.read', 'Read');
       },
       when: (i) => !!i.owned && !i.corrupt && !!i.cv_issue_id,
       // `arc_id` is set by the Lists page so the run can carry on at the end
@@ -2771,7 +2796,7 @@
     api.registerIssueAction?.({
       id: 'reader-mark',
       icon: (i) => (stateOf(i)?.completed ? hicon('square', null, '☐') : hicon('check-square', null, '☑')),
-      title: (i) => (stateOf(i)?.completed ? 'Mark as unread' : 'Mark as read'),
+      title: (i) => (stateOf(i)?.completed ? tr('actions.markUnread', 'Mark as unread') : tr('actions.markRead', 'Mark as read')),
       when: (i) => !!i.owned && !i.corrupt && !!i.cv_issue_id,
       run: async (i) => {
         const read = !stateOf(i)?.completed;
@@ -2789,7 +2814,7 @@
     api.registerIssueAction?.({
       id: 'reader-later',
       icon: (i) => (laterSet.has(i.cv_issue_id) ? hicon('bookmark', { fill: true }, '📌') : hicon('bookmark', null, '📍')),
-      title: (i) => (laterSet.has(i.cv_issue_id) ? 'Remove from Read later' : 'Read later'),
+      title: (i) => (laterSet.has(i.cv_issue_id) ? tr('removeFromLater', 'Remove from Read later') : tr('readLater', 'Read later')),
       when: (i) => !!i.owned && !i.corrupt && !!i.cv_issue_id,
       run: async (i) => {
         const on = !laterSet.has(i.cv_issue_id);
@@ -2830,15 +2855,15 @@
     api.registerSeriesAction?.({
       id: 'reader-mark-read',
       when: (s, issues) => readableRows(issues).length > 0,
-      label: () => `${hicon('check', null, '✓')} Mark read`,
-      title: 'Mark the checked issues read (nothing checked = the whole series)',
+      label: () => `${hicon('check', null, '✓')} ${te('actions.markReadBtn', 'Mark read')}`,
+      title: tr('actions.markReadTitle', 'Mark the checked issues read (nothing checked = the whole series)'),
       run: (s, issues) => bulkMark(issues, true),
     });
     api.registerSeriesAction?.({
       id: 'reader-mark-unread',
       when: (s, issues) => issues.some((x) => readStates[x.cv_issue_id]?.completed || readStates[x.cv_issue_id]?.page > 0),
-      label: () => `${hicon('rotate-ccw', null, '↺')} Mark unread`,
-      title: 'Clear read progress for the checked issues (nothing checked = the whole series)',
+      label: () => `${hicon('rotate-ccw', null, '↺')} ${te('actions.markUnreadBtn', 'Mark unread')}`,
+      title: tr('actions.markUnreadTitle', 'Clear read progress for the checked issues (nothing checked = the whole series)'),
       run: (s, issues) => bulkMark(issues, false),
     });
     // Read later for a whole series, the bulk sibling of the per-issue pin.
@@ -2872,8 +2897,8 @@
         return;
       }
       api.toast?.(on
-        ? `Added ${ids.length} issue${ids.length === 1 ? '' : 's'} to Read later.`
-        : `Removed ${ids.length} issue${ids.length === 1 ? '' : 's'} from Read later.`, 'ok');
+        ? tr('actions.laterAdded', { one: 'Added {count} issue to Read later.', other: 'Added {count} issues to Read later.' }, { count: ids.length })
+        : tr('actions.laterRemoved', { one: 'Removed {count} issue from Read later.', other: 'Removed {count} issues from Read later.' }, { count: ids.length }), 'ok');
       renderHomeRails();   // the Read later shelf changed
     };
     api.registerSeriesAction?.({
@@ -2883,10 +2908,10 @@
         const ids = laterCandidates(issues);
         const all = ids.length && ids.every((id) => laterSet.has(id));
         return all
-          ? `${hicon('bookmark', { fill: true }, '📌')} Remove from Read later`
-          : `${hicon('bookmark', null, '📍')} Read later (${ids.length})`;
+          ? `${hicon('bookmark', { fill: true }, '📌')} ${te('removeFromLater', 'Remove from Read later')}`
+          : `${hicon('bookmark', null, '📍')} ${te('actions.readLaterN', 'Read later ({count})', { count: ids.length })}`;
       },
-      title: 'Add the checked issues to Read later (nothing checked = everything still unread)',
+      title: tr('actions.laterBulkTitle', 'Add the checked issues to Read later (nothing checked = everything still unread)'),
       run: (s, issues) => bulkLater(issues),
     });
     api.registerSeriesAction?.({
@@ -2896,12 +2921,11 @@
         const readable = readableRows(issues);
         const read = readable.filter((x) => readStates[x.cv_issue_id]?.completed).length;
         const t = pickNext(issues);
-        const esc = api.escapeHtml || ((x) => x);
         return t
-          ? `${hicon('play', null, '▶')} Continue #${esc(t.number ?? '?')} (${read}/${readable.length} read)`
-          : `${hicon('rotate-ccw', null, '↺')} Re-read (all ${readable.length} read)`;
+          ? `${hicon('play', null, '▶')} ${te('actions.continueN', 'Continue #{n} ({read}/{total} read)', { n: t.number ?? '?', read, total: readable.length })}`
+          : `${hicon('rotate-ccw', null, '↺')} ${te('actions.rereadAll', 'Re-read (all {total} read)', { total: readable.length })}`;
       },
-      title: 'Pick up where you left off',
+      title: tr('actions.continueTitle', 'Pick up where you left off'),
       run: (s, issues) => {
         const t = pickNext(issues) || readableRows(issues)[0];
         if (t) openReader(t.cv_issue_id);
@@ -2925,19 +2949,20 @@
     if (libSlot && !libSlot.querySelector('#set-readerFileCovers')) {
       const wrap = document.createElement('div');
       wrap.innerHTML =
-        '<label class="field field--check"><input id="set-readerFileCovers" type="checkbox"><span>Use the file\'s first page as an owned issue\'s cover (off = always ComicVine art)</span></label>' +
-        '<p class="modal__note">Applies to the issue grid on a series page. Your file\'s page may differ from ComicVine\'s art when it\'s a variant cover or a different printing.</p>' +
-        '<label class="field field--check"><input id="set-readerPanelMl" type="checkbox"><span>Use the ML panel detector for guided view (off = built-in detection)</span></label>' +
-        '<p class="modal__note">Only applies when a panel model is installed on the server. Flipping this re-detects each issue\'s panel layout once on next open.</p>' +
-        '<label class="field field--check"><input id="set-readerPanelShare" type="checkbox"><span>Share panel layouts with the community cache</span></label>' +
-        '<p class="modal__note">When on, panel layouts are looked up from a shared cache before detecting (instant guided view for pages others have covered), and your detections and hand-corrections are contributed back. Only panel rectangles and a page-content hash are sent, never image data or filenames.</p>';
+        `<label class="field field--check"><input id="set-readerFileCovers" type="checkbox"><span>${te('library.fileCovers', "Use the file's first page as an owned issue's cover (off = always the catalog's cover art)")}</span></label>` +
+        `<p class="modal__note">${te('library.fileCoversNote', "Applies to the issue grid on a series page. Your file's page may differ from the catalog's art when it's a variant cover or a different printing.")}</p>` +
+        `<label class="field field--check"><input id="set-readerPanelMl" type="checkbox"><span>${te('library.panelMl', 'Use the ML panel detector for guided view (off = built-in detection)')}</span></label>` +
+        `<p class="modal__note">${te('library.panelMlNote', "Only applies when a panel model is installed on the server. Flipping this re-detects each issue's panel layout once on next open.")}</p>` +
+        `<label class="field field--check"><input id="set-readerPanelShare" type="checkbox"><span>${te('library.panelShare', 'Share panel layouts with the community cache')}</span></label>` +
+        `<p class="modal__note">${te('library.panelShareNote', 'When on, panel layouts are looked up from a shared cache before detecting (instant guided view for pages others have covered), and your detections and hand-corrections are contributed back. Only panel rectangles and a page-content hash are sent, never image data or filenames.')}</p>`;
       libSlot.appendChild(wrap);
     }
 
-    api.addMenuAction('Continue reading', openContinuePanel, hicon('play', null, '▶'), { section: 'Reading' });
-    api.addMenuAction('Read later', openLaterPanel, hicon('clock', null, '📌'), { section: 'Reading' });
-    api.addMenuAction('My bookmarks', openBookmarksPanel, hicon('bookmark', null, '☆'), { section: 'Reading' });
-    api.addMenuAction('Reading stats', openStatsPanel, hicon('bar-chart', null, '◔'), { section: 'Reading' });
+    const menuSection = tr('menu.section', 'Reading');
+    api.addMenuAction(tr('continueReading', 'Continue reading'), openContinuePanel, hicon('play', null, '▶'), { section: menuSection });
+    api.addMenuAction(tr('readLater', 'Read later'), openLaterPanel, hicon('clock', null, '📌'), { section: menuSection });
+    api.addMenuAction(tr('myBookmarks', 'My bookmarks'), openBookmarksPanel, hicon('bookmark', null, '☆'), { section: menuSection });
+    api.addMenuAction(tr('readingStats', 'Reading stats'), openStatsPanel, hicon('bar-chart', null, '◔'), { section: menuSection });
 
     // ---------- header incognito toggle ----------
     // One tap in the app header (next to notifications/help) flips private
@@ -2949,8 +2974,8 @@
       syncIncognitoUI();
       if (overlay) { const c = overlay.querySelector('.r-incognito'); if (c) c.checked = settings.incognito; applyLook(); }
       const msg = settings.incognito
-        ? 'Incognito reading ON — progress, history, and stats are not recorded.'
-        : 'Incognito reading off — recording resumed.';
+        ? tr('incognito.on', 'Incognito reading ON — progress, history, and stats are not recorded.')
+        : tr('incognito.off', 'Incognito reading off — recording resumed.');
       if (overlay && overlay.classList.contains('is-open') && manifest) toast(msg);
       else if (api.toast) api.toast(msg, settings.incognito ? 'info' : 'ok');
     }
@@ -2961,8 +2986,8 @@
       if (!incogBtn) return;
       incogBtn.classList.toggle('is-on', !!settings.incognito);
       incogBtn.title = settings.incognito
-        ? 'Incognito reading is ON — progress, history, and stats are not being recorded. Click to turn off.'
-        : 'Incognito reading — click to read without recording progress, history, or stats.';
+        ? tr('incognito.titleOn', 'Incognito reading is ON — progress, history, and stats are not being recorded. Click to turn off.')
+        : tr('incognito.titleOff', 'Incognito reading — click to read without recording progress, history, or stats.');
       incogBtn.setAttribute('aria-pressed', settings.incognito ? 'true' : 'false');
     }
     const headerSlot = api.slot('header-plugin-slot');
@@ -2970,7 +2995,7 @@
       incogBtn = document.createElement('button');
       incogBtn.id = 'incognito-btn';
       incogBtn.className = 'topbar__help reader-incog';
-      incogBtn.setAttribute('aria-label', 'Toggle incognito reading');
+      incogBtn.setAttribute('aria-label', tr('incognito.toggle', 'Toggle incognito reading'));
       incogBtn.innerHTML = (api.icon && api.icon('eye-off', { size: 15 })) || '🕶';
       incogBtn.onclick = () => setIncognito(!settings.incognito);
       headerSlot.appendChild(incogBtn); // append — the slot is shared between plugins
