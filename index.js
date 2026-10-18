@@ -196,11 +196,12 @@ export default function register(api) {
   };
 
   // Mature/restricted enforcement: a role without library.restricted cannot
-  // open a restricted series' issues. Same permission engine core uses.
+  // open a restricted series' issues, and neither can an account that switched
+  // mature content off for itself. Same rule core uses.
   const permCatalog = new Map([...CORE_PERMISSIONS, ...registeredPermissions()].map((p) => [p.key, p]));
   const canRestricted = (req) => {
     if (!req.user || req.user.id === 0) return true; // open mode
-    try { return roleGrants(cat, req.user.role, 'library.restricted', permCatalog); } catch { return false; }
+    try { return roleGrants(cat, req.user.role, 'library.restricted', permCatalog) && !req.user.hide_mature; } catch { return false; }
   };
   // Is this issue's series flagged restricted?
   const issueRestricted = (cvId) => {

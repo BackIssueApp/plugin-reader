@@ -16,6 +16,9 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ### Fixed
 
+- **Hide mature content applies to reading.** An account that switched mature
+  content off for itself could still open flagged issues and see them on the
+  reading shelves; the reader now follows the switch, as the library does.
 - **Read later works again.** The Read later button in the reader and the Read
   later row action now add and remove the issue. Before, both failed silently
   and nothing reached the Read later shelf.
