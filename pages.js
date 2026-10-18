@@ -128,7 +128,7 @@ export async function listPages(filePath) {
 export async function pageBuffer(filePath, index) {
   const names = await listPages(filePath);
   const name = names[index];
-  if (!name) throw new Error('page out of range');
+  if (!name) { const e = new Error('page out of range'); e.code = 'ENOPAGE'; throw e; }
   const kind = await sniffKind(filePath);
   const buffer = kind === 'zip'
     ? await zipEntryBuffer(filePath, name)

@@ -8,6 +8,13 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A page an archive does not have is "not found", not a server error.**
+  Asking for a page past the end of a file (an archive with no pages, say)
+  answered with a server error; it now answers "not found", so covers fall back
+  to the issue's artwork quietly.
+
 ### Added
 
 - **Translated UI.** Shelves, issue and series actions, the reader's

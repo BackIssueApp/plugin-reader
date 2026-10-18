@@ -317,7 +317,7 @@ export default function register(api) {
       res.set('Cache-Control', 'private, max-age=86400');
       res.set('ETag', etag);
       res.send(buffer);
-    } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+    } catch (e) { res.status(e?.code === 'ENOPAGE' ? 404 : 500).json({ error: String(e?.message || e) }); }
   }, { access: CAN_READ });
 
   // GET /api/reader/issue/:id/panels[?rtl=1] — detected panel rects per page,
