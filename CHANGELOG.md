@@ -8,6 +8,12 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Read later works again.** The Read later button in the reader and the Read
+  later row action now add and remove the issue. Before, both failed silently
+  and nothing reached the Read later shelf.
+
 ## [1.11.0] — 2026-10-17
 
 ### Added

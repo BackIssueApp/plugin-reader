@@ -1133,7 +1133,7 @@
       refreshLaterBtn();
       toast(later ? tr('addedLater', 'Added to Read later') : tr('removedLater', 'Removed from Read later'));
       try {
-        const r = await api.post(`/api/reader/issue/${manifest.issue.id}/later`, { on: later });
+        const r = await api.post(`/api/reader/later/${manifest.issue.id}`, { on: later });
         later = !!r.later; refreshLaterBtn();
         readStates && api.refreshIssueActions?.();
       } catch { /* keep local */ }
@@ -2820,7 +2820,7 @@
         const on = !laterSet.has(i.cv_issue_id);
         if (on) laterSet.add(i.cv_issue_id); else laterSet.delete(i.cv_issue_id);
         api.refreshIssueActions?.();
-        try { await api.post(`/api/reader/issue/${i.cv_issue_id}/later`, { on }); }
+        try { await api.post(`/api/reader/later/${i.cv_issue_id}`, { on }); }
         catch { /* row keeps its optimistic state */ }
       },
     });
