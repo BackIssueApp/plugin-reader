@@ -8,22 +8,25 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-10-17
+
+### Added
+
+- **Translated UI.** Shelves, issue and series actions, the reader's controls,
+  settings and overlays, and the profile toggles follow the language picked
+  under Profile → Language on BackIssue 0.9.1 and newer, and stay English on
+  older ones. Translations ship for French, German, Spanish, Italian,
+  Portuguese (Portugal and Brazil), Dutch, Polish, Japanese and Simplified
+  Chinese in `locales/`. Also covers the permission, job and library-type
+  labels, the plugin description and the notification titles shown in
+  BackIssue’s own screens.
+
 ### Fixed
 
 - **A page an archive does not have is "not found", not a server error.**
   Asking for a page past the end of a file (an archive with no pages, say)
-  answered with a server error; it now answers "not found", so covers fall back
-  to the issue's artwork quietly.
-
-### Added
-
-- **Translated UI.** Shelves, issue and series actions, the reader's
-  controls, settings and overlays, and the profile toggles follow the
-  language picked under Profile → Language on BackIssue builds newer than
-  0.9.0, and stay English on older ones. Translations ship for French,
-  German, Spanish, Italian, Portuguese and Dutch in `locales/`.
-  Also covers the permission, job and library-type labels, the plugin
-  description and the notification titles shown in BackIssue’s own screens.
+  answered with a server error; it now answers "not found", so covers fall
+  back to the issue's artwork quietly.
 
 ## [1.10.3] — 2026-10-12
 
