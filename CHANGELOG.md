@@ -8,6 +8,12 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Added
+
+- **Remove from Continue reading.** Right-click a cover on the Continue
+  reading shelf, or long-press it, to drop an issue you've given up on. It
+  goes back to not started, so it doesn't count as read.
+
 ### Fixed
 
 - **Read later works again.** The Read later button in the reader and the Read

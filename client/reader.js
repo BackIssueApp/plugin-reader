@@ -1659,11 +1659,11 @@
       // Left-click reads (the common path stays one click). Right-click, or a
       // long-press on touch, offers "Go to series" — the fast route the library
       // grid and search were previously the only ways to reach.
-      el.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(e.clientX, e.clientY, it); };
+      el.oncontextmenu = (e) => { e.preventDefault(); openCardMenu(e.clientX, e.clientY, it, shelf); };
       let lp;
       el.addEventListener('touchstart', (e) => {
         const t = e.touches[0];
-        lp = setTimeout(() => { lp = null; openCardMenu(t.clientX, t.clientY, it); }, 500);
+        lp = setTimeout(() => { lp = null; openCardMenu(t.clientX, t.clientY, it, shelf); }, 500);
       }, { passive: true });
       const cancelLp = () => { if (lp) { clearTimeout(lp); lp = null; } };
       el.addEventListener('touchend', cancelLp);
@@ -1679,7 +1679,7 @@
       if (cardMenuEl) { cardMenuEl.remove(); cardMenuEl = null; }
       document.removeEventListener('scroll', closeCardMenu, true);
     }
-    function openCardMenu(x, y, it) {
+    function openCardMenu(x, y, it, shelf) {
       closeCardMenu();
       const menu = document.createElement('div');
       menu.className = 'reader-rail__menu';
@@ -1697,6 +1697,24 @@
         else if (api.toast) api.toast(tr('shelves.notLinked', 'That issue is not linked to a series in your library.'), 'info');
       };
       menu.appendChild(go);
+      // On Continue reading: drop an abandoned issue from the shelf. It goes
+      // back to not started (the same as marking it unread), so it doesn't
+      // count as read or finished.
+      if (shelf && shelf.key === 'continue') {
+        const rm = document.createElement('button');
+        rm.className = 'reader-rail__menu-item';
+        rm.innerHTML = `${hicon('eye-off', { size: 15 }, '')}<span>${te('shelves.removeFromContinue', 'Remove from Continue reading')}</span>`;
+        rm.onclick = async (e) => {
+          e.stopPropagation();
+          closeCardMenu();
+          try {
+            await api.post(`/api/reader/issue/${it.issue_id}/mark`, { read: false });
+            if (api.toast) api.toast(tr('shelves.removedFromContinue', 'Removed from Continue reading.'), 'ok');
+          } catch { if (api.toast) api.toast(tr('shelves.removeFailed', 'Could not remove it. Try again.'), 'error'); }
+          renderHomeRails();
+        };
+        menu.appendChild(rm);
+      }
       document.body.appendChild(menu);
       // Keep it on-screen: flip left/up near the right/bottom edges.
       const r = menu.getBoundingClientRect();

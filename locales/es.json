@@ -159,7 +159,10 @@
     "nextUp": "A continuación",
     "newInLibrary": "Nuevo en tu biblioteca",
     "recentlyFinished": "Terminados recientemente",
-    "startNew": "Empezar una serie nueva"
+    "startNew": "Empezar una serie nueva",
+    "removeFromContinue": "Quitar de «Seguir leyendo»",
+    "removedFromContinue": "Quitado de «Seguir leyendo».",
+    "removeFailed": "No se pudo quitar. Inténtalo de nuevo."
   },
   "profile": {
     "shelves": "Estanterías de lectura",

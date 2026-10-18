@@ -159,7 +159,10 @@
     "nextUp": "Next up",
     "newInLibrary": "New in your library",
     "recentlyFinished": "Recently finished",
-    "startNew": "Start a new series"
+    "startNew": "Start a new series",
+    "removeFromContinue": "Remove from Continue reading",
+    "removedFromContinue": "Removed from Continue reading.",
+    "removeFailed": "Could not remove it. Try again."
   },
   "profile": {
     "shelves": "Reading shelves",

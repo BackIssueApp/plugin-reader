@@ -159,7 +159,10 @@
     "nextUp": "Hierna",
     "newInLibrary": "Nieuw in je bibliotheek",
     "recentlyFinished": "Onlangs uitgelezen",
-    "startNew": "Een nieuwe reeks beginnen"
+    "startNew": "Een nieuwe reeks beginnen",
+    "removeFromContinue": "Verwijderen uit ‘Verder lezen’",
+    "removedFromContinue": "Verwijderd uit ‘Verder lezen’.",
+    "removeFailed": "Verwijderen is niet gelukt. Probeer het opnieuw."
   },
   "profile": {
     "shelves": "Leesplanken",

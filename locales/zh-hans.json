@@ -158,7 +158,10 @@
     "nextUp": "接下来",
     "newInLibrary": "书库新增",
     "recentlyFinished": "最近读完",
-    "startNew": "开始新系列"
+    "startNew": "开始新系列",
+    "removeFromContinue": "从“继续阅读”中移除",
+    "removedFromContinue": "已从“继续阅读”中移除。",
+    "removeFailed": "无法移除，请重试。"
   },
   "profile": {
     "shelves": "阅读书架",

@@ -158,7 +158,10 @@
     "nextUp": "次に読む",
     "newInLibrary": "ライブラリの新着",
     "recentlyFinished": "最近読み終えた号",
-    "startNew": "新しいシリーズを始める"
+    "startNew": "新しいシリーズを始める",
+    "removeFromContinue": "「続きを読む」から削除",
+    "removedFromContinue": "「続きを読む」から削除しました。",
+    "removeFailed": "削除できませんでした。もう一度お試しください。"
   },
   "profile": {
     "shelves": "読書の棚",

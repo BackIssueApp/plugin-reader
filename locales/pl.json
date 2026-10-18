@@ -161,7 +161,10 @@
     "nextUp": "Następne",
     "newInLibrary": "Nowe w twojej bibliotece",
     "recentlyFinished": "Ostatnio ukończone",
-    "startNew": "Zacznij nową serię"
+    "startNew": "Zacznij nową serię",
+    "removeFromContinue": "Usuń z „Czytaj dalej”",
+    "removedFromContinue": "Usunięto z „Czytaj dalej”.",
+    "removeFailed": "Nie udało się usunąć. Spróbuj ponownie."
   },
   "profile": {
     "shelves": "Półki czytelnicze",
