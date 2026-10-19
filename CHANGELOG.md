@@ -8,6 +8,12 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Opening a CBR no longer pauses the server.** With BackIssue 0.9.3 or later, CBR pages
+  are unpacked on the app's background threads, and an archive that crashes the unpacker
+  fails on its own instead of taking the app down. Older versions unpack as before.
+
 ## [1.13.0] — 2026-10-19
 
 ### Changed

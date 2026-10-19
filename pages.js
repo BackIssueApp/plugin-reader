@@ -73,8 +73,9 @@ function zipEntryBuffer(filePath, entryName) {
 }
 
 // ---- CBR ----------------------------------------------------------------
-// node-unrar-js wants the whole archive in memory and decompresses on the main
-// thread, so CBR access is fenced: a size ceiling (the same budget the app's
+// node-unrar-js wants the whole archive in memory, and decompresses on core's
+// worker threads where the app has them (0.9.3+; on the main thread before
+// that). Either way CBR access is fenced: a size ceiling (the same budget the app's
 // converter uses), at most two archives in the WASM at once, one extraction per
 // file however many requests ask for it (opening an issue fires the page plus
 // three preloads), and a yield between entries so a big archive doesn't freeze
@@ -143,11 +144,28 @@ export const rarStats = () => ({ extractions: rarExtractions, ...withRarSlot.sta
 
 const rarName = (h) => h.name.replace(/\\/g, '/');
 
-async function openRar(filePath, st) {
+// BackIssue 0.9.3+ decodes RAR on worker threads (listRarEntries /
+// extractRarEntries in core's archive.js): the main thread stays free and a
+// decoder crash can't take the app down. Older cores lack them, so this falls
+// back to decoding here. Page order stays ours either way.
+let coreRar = import('../../src/archive.js')
+  .then((m) => (typeof m.listRarEntries === 'function' && typeof m.extractRarEntries === 'function' ? m : null))
+  .catch(() => null);
+/** Tests: decode inline (as on an older core) or through core again. Clears the CBR caches. */
+export async function useCoreRarForTests(on) {
+  const real = await import('../../src/archive.js');
+  coreRar = Promise.resolve(on ? real : null);
+  rarCache.clear(); rarHeads.clear(); listCache.clear();
+}
+
+function checkRarSize(st) {
   if (st.size > MAX_RAR_BYTES) {
     const mb = (b) => Math.round(b / 1024 / 1024);
     throw new Error(`archive too large to open in the reader (${mb(st.size)}MB > ${mb(MAX_RAR_BYTES)}MB — raise it with MAX_RAR_MB)`);
   }
+}
+async function openRar(filePath, st) {
+  checkRarSize(st);
   const buf = await fsp.readFile(filePath);
   return createExtractorFromData({ data: toArrayBuffer(buf) });
 }
@@ -174,6 +192,17 @@ function rarHead(filePath, st) {
   const hit = rarHeads.get(filePath);
   if (hit && hit.mtime === st.mtimeMs) return Promise.resolve(hit);
   return sharedFlight(rarFlights, `head|${filePath}|${st.mtimeMs}`, () => withRarSlot(async () => {
+    const core = await coreRar;
+    if (core) {
+      checkRarSize(st);
+      const raw = new Map(); // normalized → name as stored in the archive
+      for (const n of await core.listRarEntries(filePath)) {
+        if (isImage(n)) raw.set(rarName({ name: n }), n);
+      }
+      const names = naturalSort([...raw.keys()]);
+      const first = names.length ? (await core.extractRarEntries(filePath, [raw.get(names[0])])).get(raw.get(names[0])) ?? null : null;
+      return rememberHead(filePath, { mtime: st.mtimeMs, names, first });
+    }
     const ex = await openRar(filePath, st);
     pin(ex);
     const raw = new Map(); // normalized → name as stored in the archive
@@ -187,11 +216,13 @@ function rarHead(filePath, st) {
         if (f.extraction) first = asBuffer(f.extraction);
       });
     }
-    const head = { mtime: st.mtimeMs, names, first };
-    rarHeads.set(filePath, head);
-    while (rarHeads.size > RAR_HEADS_MAX) rarHeads.delete(rarHeads.keys().next().value);
-    return head;
+    return rememberHead(filePath, { mtime: st.mtimeMs, names, first });
   }));
+}
+function rememberHead(filePath, head) {
+  rarHeads.set(filePath, head);
+  while (rarHeads.size > RAR_HEADS_MAX) rarHeads.delete(rarHeads.keys().next().value);
+  return head;
 }
 
 /** Every page of the archive, extracted once and kept in a tiny LRU. */
@@ -200,13 +231,21 @@ function rarPages(filePath, st) {
   if (hit && hit.mtime === st.mtimeMs) return Promise.resolve(hit.pages);
   return sharedFlight(rarFlights, `all|${filePath}|${st.mtimeMs}`, () => withRarSlot(async () => {
     rarExtractions++;
-    const ex = await openRar(filePath, st);
     const pages = new Map();
-    await eachExtracted(ex, {}, (f) => {
-      if (f.extraction && !f.fileHeader.flags?.directory && isImage(f.fileHeader.name)) {
-        pages.set(rarName(f.fileHeader), asBuffer(f.extraction));
+    const core = await coreRar;
+    if (core) {
+      checkRarSize(st);
+      for (const [n, buf] of await core.extractRarEntries(filePath)) {
+        if (isImage(n)) pages.set(rarName({ name: n }), buf);
       }
-    });
+    } else {
+      const ex = await openRar(filePath, st);
+      await eachExtracted(ex, {}, (f) => {
+        if (f.extraction && !f.fileHeader.flags?.directory && isImage(f.fileHeader.name)) {
+          pages.set(rarName(f.fileHeader), asBuffer(f.extraction));
+        }
+      });
+    }
     rarCache.delete(filePath);
     rarCache.set(filePath, { mtime: st.mtimeMs, pages });
     while (rarCache.size > RAR_CACHE_MAX) rarCache.delete(rarCache.keys().next().value);
