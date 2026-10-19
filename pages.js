@@ -1,11 +1,13 @@
 // Page access for comic archives. CBZ (the library standard) streams single
-// entries straight out of the zip — no temp files, ~ms per page. CBR falls
-// back to a whole-archive extract kept in a tiny LRU (RAR has no cheap random
-// access; solid archives must be read in order anyway).
+// entries straight out of the zip — no temp files, ~ms per page. CBR pulls
+// the cover out on its own and otherwise falls back to a whole-archive extract
+// kept in a tiny LRU (RAR has no cheap random access; solid archives must be
+// read in order anyway).
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import yauzl from 'yauzl';
 import { createExtractorFromData } from 'node-unrar-js';
 
@@ -70,27 +72,146 @@ function zipEntryBuffer(filePath, entryName) {
   });
 }
 
-// ---- CBR (whole-archive LRU — RAR has no cheap random access) -----------
+// ---- CBR ----------------------------------------------------------------
+// node-unrar-js wants the whole archive in memory and decompresses on the main
+// thread, so CBR access is fenced: a size ceiling (the same budget the app's
+// converter uses), at most two archives in the WASM at once, one extraction per
+// file however many requests ask for it (opening an issue fires the page plus
+// three preloads), and a yield between entries so a big archive doesn't freeze
+// the event loop. The cover is pulled out on its own — the extractor stops
+// after that entry — so a CBR series' cover grid never decompresses whole
+// archives; reading past the cover extracts the archive once into a tiny LRU.
 
-const rarCache = new Map(); // path → { mtime, pages: Map(name → Buffer) }
+// A Buffer from fs.readFile of a non-tiny file owns its whole ArrayBuffer, so
+// it can be handed over without a copy; only pooled/sliced buffers need one.
+const toArrayBuffer = (buf) =>
+  (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength)
+    ? buf.buffer
+    : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+// Wrap an extracted Uint8Array without copying it (it is already a JS-owned
+// copy out of the WASM heap).
+const asBuffer = (u8) => Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength);
+
+// ~5% of the host's (or container's) memory, clamped to [400MB, 1GB];
+// MAX_RAR_MB overrides — the same rule the app applies to its own RAR work.
+function computeMaxRarBytes() {
+  const envMb = Number(process.env.MAX_RAR_MB);
+  if (Number.isFinite(envMb) && envMb > 0) return Math.round(envMb * 1024 * 1024);
+  const constrained = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0;
+  const budget = (Number.isFinite(constrained) && constrained > 0) ? constrained : os.totalmem();
+  const FLOOR = 400 * 1024 * 1024, CEILING = 1024 * 1024 * 1024;
+  return Math.max(FLOOR, Math.min(CEILING, Math.round(budget * 0.05)));
+}
+export const MAX_RAR_BYTES = computeMaxRarBytes();
+
+/** A small FIFO semaphore: run fn while holding one of `slots`. */
+export function makeGate(slots) {
+  let active = 0;
+  const queue = [];
+  const gate = (fn) => new Promise((resolve, reject) => {
+    const run = () => {
+      active++;
+      Promise.resolve().then(fn).then(resolve, reject).finally(() => {
+        active--;
+        const next = queue.shift();
+        if (next) next();
+      });
+    };
+    if (active < slots) run(); else queue.push(run);
+  });
+  gate.stats = () => ({ active, queued: queue.length });
+  return gate;
+}
+const withRarSlot = makeGate(2);
+
+// One promise per key while it runs; later callers share it.
+function sharedFlight(map, key, fn) {
+  const hit = map.get(key);
+  if (hit) return hit;
+  const p = Promise.resolve().then(fn).finally(() => map.delete(key));
+  map.set(key, p);
+  return p;
+}
+
+const rarCache = new Map();   // path → { mtime, pages: Map(name → Buffer) }
 const RAR_CACHE_MAX = 2;
+const rarHeads = new Map();   // path → { mtime, names, first } (page list + cover)
+const RAR_HEADS_MAX = 64;
+const rarFlights = new Map(); // `${what}|${path}|${mtime}` → Promise
+let rarExtractions = 0;       // whole-archive extractions started (tests watch this)
+export const rarStats = () => ({ extractions: rarExtractions, ...withRarSlot.stats() });
 
-async function rarPages(filePath) {
-  const mtime = (await fsp.stat(filePath)).mtimeMs;
-  const hit = rarCache.get(filePath);
-  if (hit && hit.mtime === mtime) return hit.pages;
-  const buf = await fsp.readFile(filePath);
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-  const extractor = await createExtractorFromData({ data: ab });
-  const pages = new Map();
-  for (const f of extractor.extract({}).files) {
-    if (f.extraction && !f.fileHeader.flags?.directory && isImage(f.fileHeader.name)) {
-      pages.set(f.fileHeader.name.replace(/\\/g, '/'), Buffer.from(f.extraction));
-    }
+const rarName = (h) => h.name.replace(/\\/g, '/');
+
+async function openRar(filePath, st) {
+  if (st.size > MAX_RAR_BYTES) {
+    const mb = (b) => Math.round(b / 1024 / 1024);
+    throw new Error(`archive too large to open in the reader (${mb(st.size)}MB > ${mb(MAX_RAR_BYTES)}MB — raise it with MAX_RAR_MB)`);
   }
-  rarCache.set(filePath, { mtime, pages });
-  while (rarCache.size > RAR_CACHE_MAX) rarCache.delete(rarCache.keys().next().value);
-  return pages;
+  const buf = await fsp.readFile(filePath);
+  return createExtractorFromData({ data: toArrayBuffer(buf) });
+}
+
+// node-unrar-js routes its WASM file callbacks through ONE module-global
+// extractor (whichever was created last). Steps of two extractions — ours, or
+// the app's own converter — can interleave across our yields, so ours is
+// pinned back before every step.
+const pin = (ex) => { if (ex.unrar) ex.unrar.extractor = ex; };
+async function eachExtracted(ex, opts, onFile) {
+  pin(ex);
+  const it = ex.extract(opts).files;
+  for (;;) {
+    pin(ex);
+    const { value, done } = it.next();
+    if (done) return;
+    onFile(value);
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
+/** Page names + the cover (first page) — one read, no full decompress. */
+function rarHead(filePath, st) {
+  const hit = rarHeads.get(filePath);
+  if (hit && hit.mtime === st.mtimeMs) return Promise.resolve(hit);
+  return sharedFlight(rarFlights, `head|${filePath}|${st.mtimeMs}`, () => withRarSlot(async () => {
+    const ex = await openRar(filePath, st);
+    pin(ex);
+    const raw = new Map(); // normalized → name as stored in the archive
+    for (const h of ex.getFileList().fileHeaders) {
+      if (!h.flags?.directory && isImage(h.name)) raw.set(rarName(h), h.name);
+    }
+    const names = naturalSort([...raw.keys()]);
+    let first = null;
+    if (names.length) {
+      await eachExtracted(ex, { files: [raw.get(names[0])] }, (f) => {
+        if (f.extraction) first = asBuffer(f.extraction);
+      });
+    }
+    const head = { mtime: st.mtimeMs, names, first };
+    rarHeads.set(filePath, head);
+    while (rarHeads.size > RAR_HEADS_MAX) rarHeads.delete(rarHeads.keys().next().value);
+    return head;
+  }));
+}
+
+/** Every page of the archive, extracted once and kept in a tiny LRU. */
+function rarPages(filePath, st) {
+  const hit = rarCache.get(filePath);
+  if (hit && hit.mtime === st.mtimeMs) return Promise.resolve(hit.pages);
+  return sharedFlight(rarFlights, `all|${filePath}|${st.mtimeMs}`, () => withRarSlot(async () => {
+    rarExtractions++;
+    const ex = await openRar(filePath, st);
+    const pages = new Map();
+    await eachExtracted(ex, {}, (f) => {
+      if (f.extraction && !f.fileHeader.flags?.directory && isImage(f.fileHeader.name)) {
+        pages.set(rarName(f.fileHeader), asBuffer(f.extraction));
+      }
+    });
+    rarCache.delete(filePath);
+    rarCache.set(filePath, { mtime: st.mtimeMs, pages });
+    while (rarCache.size > RAR_CACHE_MAX) rarCache.delete(rarCache.keys().next().value);
+    return pages;
+  }));
 }
 
 // ---- Public API ----------------------------------------------------------
@@ -106,33 +227,52 @@ export async function sniffKind(filePath) {
   } finally { await fh.close(); }
 }
 
-const listCache = new Map(); // path → { mtime, names }
+/** One stat per request, shared by everything below (callers may pass it in). */
+export async function statFile(filePath) {
+  try { return await fsp.stat(filePath); }
+  catch (e) {
+    if (e?.code === 'ENOENT' || e?.code === 'ENOTDIR') throw new Error('file missing on disk');
+    throw e;
+  }
+}
+/** A short fingerprint of the file's bytes (mtime + size) for URLs and ETags. */
+export const fileVersionOf = (st) => (st ? Math.round(st.mtimeMs).toString(36) + '-' + st.size.toString(36) : '0');
 
-/** Naturally-sorted page names of the archive (cached by mtime). */
-export async function listPages(filePath) {
-  if (!fs.existsSync(filePath)) throw new Error('file missing on disk');
-  const mtime = (await fsp.stat(filePath)).mtimeMs;
+const listCache = new Map(); // path → { mtime, kind, names }
+
+async function listing(filePath, st) {
   const hit = listCache.get(filePath);
-  if (hit && hit.mtime === mtime) return hit.names;
+  if (hit && hit.mtime === st.mtimeMs) return hit;
   const kind = await sniffKind(filePath);
   let names;
   if (kind === 'zip') names = await zipPageNames(filePath);
-  else if (kind === 'rar') names = naturalSort([...(await rarPages(filePath)).keys()]);
+  else if (kind === 'rar') names = (await rarHead(filePath, st)).names;
   else throw new Error('not a readable comic archive');
-  listCache.set(filePath, { mtime, names });
+  const entry = { mtime: st.mtimeMs, kind, names };
+  listCache.set(filePath, entry);
   while (listCache.size > 50) listCache.delete(listCache.keys().next().value);
-  return names;
+  return entry;
+}
+
+/** Naturally-sorted page names of the archive (cached by mtime). */
+export async function listPages(filePath, { stat } = {}) {
+  return (await listing(filePath, stat || await statFile(filePath))).names;
 }
 
 /** One page as { buffer, contentType }. */
-export async function pageBuffer(filePath, index) {
-  const names = await listPages(filePath);
+export async function pageBuffer(filePath, index, { stat } = {}) {
+  const st = stat || await statFile(filePath);
+  const { kind, names } = await listing(filePath, st);
   const name = names[index];
   if (!name) { const e = new Error('page out of range'); e.code = 'ENOPAGE'; throw e; }
-  const kind = await sniffKind(filePath);
-  const buffer = kind === 'zip'
-    ? await zipEntryBuffer(filePath, name)
-    : (await rarPages(filePath)).get(name);
+  let buffer;
+  if (kind === 'zip') buffer = await zipEntryBuffer(filePath, name);
+  else {
+    const all = rarCache.get(filePath);
+    if (all && all.mtime === st.mtimeMs) buffer = all.pages.get(name);
+    else if (index === 0) buffer = (await rarHead(filePath, st)).first;
+    else buffer = (await rarPages(filePath, st)).get(name);
+  }
   const ext = path.extname(name).toLowerCase();
   return { buffer, contentType: CONTENT_TYPES[ext] || 'application/octet-stream' };
 }
@@ -142,8 +282,41 @@ export async function pageBuffer(filePath, index) {
 // Width is clamped to sane steps so the cache isn't defeated by arbitrary
 // values.
 const resizeCache = new Map(); // `${path}:${index}:${w}:${webp}:${trim}` → { mtime, buffer, type }
-const RESIZE_CACHE_MAX = 300;
+const RESIZE_CACHE_BYTES = 50 * 1024 * 1024; // bounded by bytes: a 1600px page weighs ~50 covers
+let resizeBytes = 0;
 const ALLOWED_WIDTHS = [200, 400, 800, 1200, 1600];
+
+function rememberResized(key, entry) {
+  const old = resizeCache.get(key);
+  if (old) { resizeBytes -= old.buffer.length; resizeCache.delete(key); }
+  resizeCache.set(key, entry);
+  resizeBytes += entry.buffer.length;
+  while (resizeBytes > RESIZE_CACHE_BYTES && resizeCache.size > 1) {
+    const [k, v] = resizeCache.entries().next().value;
+    resizeCache.delete(k);
+    resizeBytes -= v.buffer.length;
+  }
+}
+
+// sharp runs on the libuv pool, which file reads share, so a cover grid's
+// dozens of cold decodes queue here instead of all decoding at once (and
+// starving the stats/reads behind them). One pool thread is left for I/O.
+const POOL = Number(process.env.UV_THREADPOOL_SIZE) || 4;
+const CPUS = (os.availableParallelism?.() || os.cpus().length || 1);
+const withSharpSlot = makeGate(Math.max(1, Math.min(CPUS, POOL - 1)));
+const resizeFlights = new Map(); // `${key}|${mtime}` → Promise
+export const resizeStats = () => ({ cachedBytes: resizeBytes, cached: resizeCache.size, ...withSharpSlot.stats() });
+
+let sharpMod = null;
+async function loadSharp() {
+  if (!sharpMod) {
+    sharpMod = (await import('sharp')).default;
+    // Every input is decoded once and its output cached by us; libvips' own
+    // operation cache would only hold decoded pixels nobody asks for again.
+    try { sharpMod.cache(false); } catch { /* older sharp */ }
+  }
+  return sharpMod;
+}
 
 // On-disk copy of every processed variant, so a restart (or the memory LRU
 // rolling over) does not send the next Home screen back to the archives:
@@ -183,7 +356,13 @@ async function pruneDiskCache() {
   try {
     const names = (await fsp.readdir(diskCacheDir)).filter((n) => /\.(webp|jpg)$/.test(n));
     if (names.length <= DISK_CACHE_MAX) return;
-    const stats = await Promise.all(names.map(async (n) => ({ n, t: (await fsp.stat(path.join(diskCacheDir, n))).mtimeMs })));
+    // In batches: 20k stats at once would occupy the whole libuv pool.
+    const stats = [];
+    for (let i = 0; i < names.length; i += 32) {
+      const batch = await Promise.all(names.slice(i, i + 32).map((n) =>
+        fsp.stat(path.join(diskCacheDir, n)).then((s) => ({ n, t: s.mtimeMs }), () => null)));
+      for (const s of batch) if (s) stats.push(s);
+    }
     stats.sort((a, b) => a.t - b.t);
     for (const s of stats.slice(0, stats.length - DISK_CACHE_KEEP)) await fsp.unlink(path.join(diskCacheDir, s.n)).catch(() => {});
   } catch { /* ignore */ }
@@ -206,32 +385,38 @@ export function clampWidth(w) {
   return ALLOWED_WIDTHS.find((a) => n <= a) || ALLOWED_WIDTHS[ALLOWED_WIDTHS.length - 1];
 }
 
-export async function pageBufferResized(filePath, index, width, { webp = false, trim = false } = {}) {
+export async function pageBufferResized(filePath, index, width, { webp = false, trim = false, stat } = {}) {
   const w = clampWidth(width);
-  if (!w && !trim) return pageBuffer(filePath, index); // untouched original
-  const mtime = (await fsp.stat(filePath)).mtimeMs;
+  const st = stat || await statFile(filePath);
+  if (!w && !trim) return pageBuffer(filePath, index, { stat: st }); // untouched original
+  const mtime = st.mtimeMs;
   const key = `${filePath}:${index}:${w}:${webp ? 1 : 0}:${trim ? 1 : 0}`;
   const hit = resizeCache.get(key);
-  if (hit && hit.mtime === mtime) return { buffer: hit.buffer, contentType: hit.type };
-  const type0 = webp ? 'image/webp' : 'image/jpeg';
-  const diskFile = diskPathFor(key, mtime, webp);
-  const onDisk = await diskRead(diskFile);
-  if (onDisk) {
-    resizeCache.set(key, { mtime, buffer: onDisk, type: type0 });
-    while (resizeCache.size > RESIZE_CACHE_MAX) resizeCache.delete(resizeCache.keys().next().value);
-    return { buffer: onDisk, contentType: type0 };
+  if (hit && hit.mtime === mtime) {
+    rememberResized(key, hit); // refresh its LRU position
+    return { buffer: hit.buffer, contentType: hit.type };
   }
-  const { buffer } = await pageBuffer(filePath, index);
-  const { default: sharp } = await import('sharp');
-  let img = sharp(buffer);
-  if (trim) img = img.trim({ threshold: 25 }); // shave white scan borders
-  if (w) img = img.resize({ width: w, withoutEnlargement: true });
-  const type = webp ? 'image/webp' : 'image/jpeg';
-  const out = webp
-    ? await img.webp({ quality: 80 }).toBuffer()
-    : await img.jpeg({ quality: 78 }).toBuffer();
-  resizeCache.set(key, { mtime, buffer: out, type });
-  while (resizeCache.size > RESIZE_CACHE_MAX) resizeCache.delete(resizeCache.keys().next().value);
-  diskWrite(diskFile, out); // fire-and-forget; the response never waits on the disk
-  return { buffer: out, contentType: type };
+  // Concurrent requests for the same variant (grid + preload) share one render.
+  return sharedFlight(resizeFlights, `${key}|${mtime}`, async () => {
+    const type = webp ? 'image/webp' : 'image/jpeg';
+    const diskFile = diskPathFor(key, mtime, webp);
+    const onDisk = await diskRead(diskFile);
+    if (onDisk) {
+      rememberResized(key, { mtime, buffer: onDisk, type });
+      return { buffer: onDisk, contentType: type };
+    }
+    const out = await withSharpSlot(async () => {
+      const { buffer } = await pageBuffer(filePath, index, { stat: st });
+      const sharp = await loadSharp();
+      let img = sharp(buffer);
+      if (trim) img = img.trim({ threshold: 25 }); // shave white scan borders
+      if (w) img = img.resize({ width: w, withoutEnlargement: true });
+      return webp
+        ? img.webp({ quality: 80 }).toBuffer()
+        : img.jpeg({ quality: 78 }).toBuffer();
+    });
+    rememberResized(key, { mtime, buffer: out, type });
+    diskWrite(diskFile, out); // fire-and-forget; the response never waits on the disk
+    return { buffer: out, contentType: type };
+  });
 }

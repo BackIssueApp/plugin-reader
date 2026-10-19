@@ -8,6 +8,27 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Changed
+
+- **CBR comics open without stalling the server.** Opening a CBR used to
+  decompress the whole archive up to four times at once (the page plus its
+  preloads), and a grid of CBR covers decompressed every archive in it. Now
+  each archive is extracted once however many requests ask for it, at most
+  two at a time, with pauses so other requests keep being served; covers
+  come out on their own without the rest of the archive. Archives too large
+  to open safely (the same limit the app uses for conversion, `MAX_RAR_MB`)
+  get an error instead of exhausting memory.
+- **Cover grids resize a few pages at a time.** Cold thumbnails queue for a
+  small number of resize slots instead of all decoding at once, a cover asked
+  for twice at the same moment is made once, and the in-memory cache is
+  capped at about 50 MB.
+- **Faster New in library.** The shelf no longer sorts every file in the
+  library on each home load (about 120 ms at 100,000 files, now under 1 ms).
+  Reading list progress also stops loading every remaining item of every
+  list to show the next one.
+- Page, cover and panel requests no longer block on file-system checks,
+  which matters when the library is on network storage.
+
 ## [1.12.0] — 2026-10-18
 
 ### Added

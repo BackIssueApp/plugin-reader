@@ -3,11 +3,12 @@
 // next-issue chaining) served straight from the library's CBZ/CBR files.
 // Not a download source: routes + client UI only.
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import config from '../../src/config.js';
-import { listPages, pageBuffer, pageBufferResized, setPageCacheDir, pageVariantCached } from './pages.js';
+import { listPages, pageBuffer, pageBufferResized, setPageCacheDir, pageVariantCached, fileVersionOf } from './pages.js';
 import { detectPanels, orderPanels } from './panels.js';
 import { createMlDetector } from './mlpanels.js';
 import { createPanelCache, pageHash, pageDhash } from './panelcache.js';
@@ -232,10 +233,9 @@ export default function register(api) {
   // A short fingerprint of the file's current bytes (mtime + size). It rides the
   // page URL and the ETag, so replacing a comic changes both — the browser (and
   // any proxy) fetch the new file instead of serving the cached old one.
-  const fileVersion = (p) => {
-    try { const st = fs.statSync(p); return Math.round(st.mtimeMs).toString(36) + '-' + st.size.toString(36); }
-    catch { return '0'; }
-  };
+  // Async: page and cover requests arrive by the dozen and the library may be
+  // on network storage, where a blocking stat holds every other request.
+  const statOrNull = (p) => fsp.stat(p).catch(() => null);
 
   // CV metadata for the in-reader info overlay.
   function issueInfo(cvId) {
@@ -280,13 +280,15 @@ export default function register(api) {
       if (blockedRestricted(req, Number(req.params.id))) return res.status(404).json({ error: 'no file for this issue' });
       const issue = issueRow(Number(req.params.id));
       if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
-      const pages = await listPages(issue.file_path);
+      const st = await statOrNull(issue.file_path);
+      if (!st) throw new Error('file missing on disk');
+      const pages = await listPages(issue.file_path, { stat: st });
       const { prev, next } = neighbors(issue);
       res.json({
         issue: { id: issue.id, number: issue.issue_number, title: issue.title },
         series: { id: issue.series_id, title: issue.series_title },
         pages: pages.length,
-        v: fileVersion(issue.file_path),   // page-URL cache-buster; changes when the file is replaced
+        v: fileVersionOf(st),   // page-URL cache-buster; changes when the file is replaced
         prev, next,
         progress: store.progress(uid(req), issue.id),
         bookmarks: store.bookmarks(uid(req), issue.id),
@@ -310,10 +312,11 @@ export default function register(api) {
       const w = Number(req.query.w) | 0;
       const trim = req.query.trim === '1';
       const webp = (w || trim) && /image\/webp/.test(req.headers.accept || '');
-      const etag = `"r${issue.id}-${n}-${w}-${trim ? 1 : 0}-${webp ? 1 : 0}-${fileVersion(issue.file_path)}"`;
+      const st = await statOrNull(issue.file_path);
+      const etag = `"r${issue.id}-${n}-${w}-${trim ? 1 : 0}-${webp ? 1 : 0}-${fileVersionOf(st)}"`;
       res.set('Vary', 'Accept');
       if (req.headers['if-none-match'] === etag) return res.status(304).end();
-      const { buffer, contentType } = await pageBufferResized(issue.file_path, n, w, { webp, trim });
+      const { buffer, contentType } = await pageBufferResized(issue.file_path, n, w, { webp, trim, stat: st || undefined });
       res.set('Content-Type', contentType);
       res.set('Cache-Control', 'private, max-age=86400');
       res.set('ETag', etag);
@@ -331,9 +334,9 @@ export default function register(api) {
   const panelJobs = new Map(); // issueId → in-flight promise
   const panelProgress = new Map(); // issueId → { done, total } while detecting
   let panelQueue = Promise.resolve(); // one detection job at a time (CPU care)
-  const fileKeyOf = (p) => {
-    try { const st = fs.statSync(p); return `${p}|${Math.round(st.mtimeMs)}|${st.size}`; }
-    catch { return null; }
+  const fileKeyOf = async (p) => {
+    const st = await statOrNull(p);
+    return st ? `${p}|${Math.round(st.mtimeMs)}|${st.size}` : null;
   };
   async function computePanels(issueId, filePath, fileKey) {
     const names = await listPages(filePath);
@@ -343,7 +346,7 @@ export default function register(api) {
     // Human corrections outrank every detector: a recompute (engine upgrade,
     // cache miss) must never spend CPU re-detecting a page someone already
     // fixed by hand. Overrides are keyed to the raw file, not the engine.
-    const override = store.panelsOverride(issueId, fileKeyOf(filePath)) || {};
+    const override = store.panelsOverride(issueId, await fileKeyOf(filePath)) || {};
 
     // Phase 1: hash every page (cheap) and batch-look-up the community cache,
     // so we only spend detection CPU on pages nobody has covered yet.
@@ -434,7 +437,7 @@ export default function register(api) {
       if (blockedRestricted(req, id)) return res.status(404).json({ error: 'no file for this issue' });
       const issue = issueRow(id);
       if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
-      const rawKey = fileKeyOf(issue.file_path);
+      const rawKey = await fileKeyOf(issue.file_path);
       if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
       // The engine is part of the cache key: turning the ML model on (or off)
       // recomputes each issue once instead of serving the other engine's rects.
@@ -484,14 +487,14 @@ export default function register(api) {
   // PUT /api/reader/issue/:id/panels/page/:page  { panels: [{x,y,w,h,poly?}] }
   // Save a hand-edited layout for ONE page ([] = force page mode). Validated
   // hard — this JSON is served to every client that opens the issue.
-  api.registerRoute('put', '/api/reader/issue/:id/panels/page/:page', (req, res) => {
+  api.registerRoute('put', '/api/reader/issue/:id/panels/page/:page', async (req, res) => {
     try {
       const id = Number(req.params.id);
       const pageNo = Number(req.params.page);
       if (!Number.isInteger(pageNo) || pageNo < 0) return res.status(400).json({ error: 'bad page' });
       const issue = issueRow(id);
       if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
-      const rawKey = fileKeyOf(issue.file_path);
+      const rawKey = await fileKeyOf(issue.file_path);
       if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
       const panels = sanitizePanels(req.body?.panels);
       if (!panels) return res.status(400).json({ error: 'invalid panels payload' });
@@ -503,12 +506,12 @@ export default function register(api) {
   }, { access: CAN_EDIT_PANELS });
 
   // DELETE .../panels/page/:page — revert one page to the detector's layout.
-  api.registerRoute('delete', '/api/reader/issue/:id/panels/page/:page', (req, res) => {
+  api.registerRoute('delete', '/api/reader/issue/:id/panels/page/:page', async (req, res) => {
     try {
       const id = Number(req.params.id);
       const issue = issueRow(id);
       if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
-      const rawKey = fileKeyOf(issue.file_path);
+      const rawKey = await fileKeyOf(issue.file_path);
       if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
       store.clearPanelsOverride(id, rawKey, Number(req.params.page));
       res.json({ ok: true });
@@ -519,7 +522,7 @@ export default function register(api) {
   // cached auto-detection so it recomputes with whatever detector is loaded
   // now (use after swapping the model). ?edits=clear also drops human
   // overrides + review marks for a clean slate; by default they're kept.
-  api.registerRoute('post', '/api/reader/issue/:id/panels/redetect', (req, res) => {
+  api.registerRoute('post', '/api/reader/issue/:id/panels/redetect', async (req, res) => {
     try {
       const id = Number(req.params.id);
       const issue = issueRow(id);
@@ -527,7 +530,7 @@ export default function register(api) {
       store.clearPanels(id);
       panelJobs.delete(id);
       if (req.query.edits === 'clear') {
-        const rawKey = fileKeyOf(issue.file_path);
+        const rawKey = await fileKeyOf(issue.file_path);
         if (rawKey) { store.clearPanelsOverride(id, rawKey); store.reviewedPages(id, rawKey).forEach((p) => store.setReviewed(id, rawKey, p, false)); }
       }
       res.json({ ok: true });
@@ -537,14 +540,14 @@ export default function register(api) {
   // PUT/DELETE /api/reader/issue/:id/panels/reviewed/:page — mark a page as
   // human-reviewed ("the layout reads correctly"), or take the mark back.
   for (const [method, on] of [['put', true], ['delete', false]]) {
-    api.registerRoute(method, '/api/reader/issue/:id/panels/reviewed/:page', (req, res) => {
+    api.registerRoute(method, '/api/reader/issue/:id/panels/reviewed/:page', async (req, res) => {
       try {
         const id = Number(req.params.id);
         const pageNo = Number(req.params.page);
         if (!Number.isInteger(pageNo) || pageNo < 0) return res.status(400).json({ error: 'bad page' });
         const issue = issueRow(id);
         if (!issue || !issue.file_path) return res.status(404).json({ error: 'no file for this issue' });
-        const rawKey = fileKeyOf(issue.file_path);
+        const rawKey = await fileKeyOf(issue.file_path);
         if (!rawKey) return res.status(404).json({ error: 'file unreadable' });
         store.setReviewed(id, rawKey, pageNo, on);
         // A human confirming "this layout reads correctly" is the strongest
@@ -729,11 +732,12 @@ export default function register(api) {
   // GET /reader-sw.js — the offline service worker. Served from the root path
   // with Service-Worker-Allowed so its scope can cover /api/reader/* (a script
   // under /plugins/... could only control its own subtree).
+  let swJs = null;
   api.registerRoute('get', '/reader-sw.js', (req, res) => {
     res.set('Content-Type', 'application/javascript');
     res.set('Service-Worker-Allowed', '/');
     res.set('Cache-Control', 'no-cache');
-    res.send(fs.readFileSync(path.join(HERE, 'client', 'sw.js'), 'utf8'));
+    res.send(swJs ??= fs.readFileSync(path.join(HERE, 'client', 'sw.js'), 'utf8')); // read once per boot
   });
 
   // GET /reader-manifest.json + /reader-icon.svg — web-app manifest so the app

@@ -178,6 +178,15 @@ export function openReaderStore(dbPath) {
     try { remap(); } catch { /* re-attempt next boot */ }
   }
 
+  // "New in library" walks the newest linked files. Without an index on mtime
+  // that is a sort of every file on each home load (~120 ms at 100k files);
+  // this partial index (linked, valid files only) makes it a short index walk.
+  // The OPDS plugin creates the same one — IF NOT EXISTS keeps that a no-op.
+  if (hasCore('library_files')) {
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_libfiles_newest ON library_files(mtime) WHERE valid = 1 AND cv_issue_id IS NOT NULL'); }
+    catch { /* an older core without these columns: the query still works, just slower */ }
+  }
+
   return {
     progress(userId, issueId) {
       return db.prepare('SELECT page, pages, completed FROM reader_progress WHERE user_id = ? AND issue_id = ?').get(userId, issueId)
@@ -265,19 +274,33 @@ export function openReaderStore(dbPath) {
     /** Recently-added issues the user hasn't touched yet — "new, ready to read".
      *  Ordered by the file's mtime (when the copy landed on disk). */
     newInLibrary(userId, limit = 12) {
-      return db.prepare(`
-        SELECT lf.cv_issue_id AS issue_id, ci.name AS title, ci.issue_number,
-               cs.name AS series, ci.cv_series_id AS series_id
-          FROM library_files lf
-          JOIN cv_issues ci ON ci.comicvine_id = lf.cv_issue_id
-          LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+      // Walk the newest files (idx_libfiles_newest) and keep each issue's
+      // first — i.e. newest — file, instead of grouping every file in the
+      // library. A few issues have several files, so over-fetch and widen
+      // only when duplicates or read issues leave the shelf short.
+      const walk = db.prepare(`
+        SELECT lf.cv_issue_id AS id FROM library_files lf
          WHERE lf.valid = 1 AND lf.cv_issue_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM cv_issues ci WHERE ci.comicvine_id = lf.cv_issue_id)
            AND NOT EXISTS (SELECT 1 FROM reader_progress p
                             WHERE p.user_id = ? AND p.issue_id = lf.cv_issue_id
                               AND (p.completed = 1 OR p.page > 0))
-         GROUP BY lf.cv_issue_id
-         ORDER BY MAX(lf.mtime) DESC LIMIT ?
-      `).all(userId, limit);
+         ORDER BY lf.mtime DESC LIMIT ?`);
+      let ids = [];
+      for (let n = Math.max(limit * 3, 1); ; n *= 4) {
+        const rows = walk.all(userId, n);
+        ids = [...new Set(rows.map((r) => r.id))];
+        if (ids.length >= limit || rows.length < n) break;
+      }
+      ids = ids.slice(0, limit);
+      if (!ids.length) return [];
+      const rows = db.prepare(`
+        SELECT ci.comicvine_id AS issue_id, ci.name AS title, ci.issue_number,
+               cs.name AS series, ci.cv_series_id AS series_id
+          FROM cv_issues ci LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
+         WHERE ci.comicvine_id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+      const byId = new Map(rows.map((r) => [r.issue_id, r]));
+      return ids.map((id) => byId.get(id)).filter(Boolean);
     },
 
     /** Issues the user finished, most recent first — for a re-read or a look back. */
@@ -384,7 +407,9 @@ export function openReaderStore(dbPath) {
          GROUP BY li.list_id
       `).all(userId, userId);
 
-      // Candidates for "next", in arc order; the first row per list wins.
+      // "Next" per list: the first unread, owned item in arc order. One
+      // LIMIT 1 walk of idx_rli_list per list — not every remaining item of
+      // every visible list joined and shipped just to keep the first.
       const upcoming = db.prepare(`
         SELECT li.list_id, li.position, li.cv_issue_id,
                ci.issue_number, ci.name AS title, ci.image_url,
@@ -394,23 +419,19 @@ export function openReaderStore(dbPath) {
           LEFT JOIN cv_issues ci ON ci.comicvine_id = li.cv_issue_id
           LEFT JOIN cv_series cs ON cs.comicvine_id = ci.cv_series_id
           LEFT JOIN reader_progress p ON p.issue_id = li.cv_issue_id AND p.user_id = ?
-         WHERE ${visible}
+         WHERE li.list_id = ?
            AND COALESCE(p.completed, 0) = 0
            AND EXISTS (SELECT 1 FROM library_files lf
                         WHERE lf.cv_issue_id = li.cv_issue_id AND lf.valid = 1)
-         ORDER BY li.list_id, li.position
-      `).all(userId, userId);
+         ORDER BY li.position LIMIT 1
+      `);
 
       const out = {};
       for (const t of totals) {
         out[t.list_id] = {
           name: t.name || '', read: t.read || 0, total: t.total || 0, inProgress: t.in_progress || 0,
-          lastReadAt: t.last_read_at || null, next: null,
+          lastReadAt: t.last_read_at || null, next: upcoming.get(userId, t.list_id) || null,
         };
-      }
-      for (const row of upcoming) {
-        const entry = out[row.list_id];
-        if (entry && !entry.next) entry.next = row;
       }
       return out;
     },
