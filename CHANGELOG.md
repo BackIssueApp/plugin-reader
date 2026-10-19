@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-10-19
+
 ### Changed
 
 - **Opening a CBR no longer pauses the server.** With BackIssue 0.9.3 or later, CBR pages
