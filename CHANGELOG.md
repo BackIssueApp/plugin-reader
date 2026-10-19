@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-10-19
+
 ### Changed
 
 - **CBR comics open without stalling the server.** Opening a CBR used to
