@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-10-18
+
 ### Added
 
 - **Remove from Continue reading.** Right-click a cover on the Continue
