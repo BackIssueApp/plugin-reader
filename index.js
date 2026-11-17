@@ -45,11 +45,13 @@ export default function register(api) {
     tier: 'admin',
   });
 
-  // Issue covers on the volume grid: prefer the file's own first page (default)
-  // or ComicVine art. Registered so the value validates + persists; the default
-  // is ON, set before core merges saved settings, so a saved 'false' wins.
+  // Issue covers on the volume grid: the catalog's art (default) or the file's
+  // own first page. Registered so the value validates + persists; the default
+  // is OFF, set before core merges saved settings, so a saved 'true' wins. It
+  // was on until 1.14.0: a file's first page is often a variant or a recap
+  // page, so the grid and the issue page disagreed with no obvious way out.
   api.registerSettings?.({ readerFileCovers: { type: 'bool' } });
-  if (config.readerFileCovers === undefined) config.readerFileCovers = true;
+  if (config.readerFileCovers === undefined) config.readerFileCovers = false;
 
   // Optional ML panel detector (see mlpanels.js). The model file is not
   // bundled — drop it at <data dir>/models/panels.onnx or point the

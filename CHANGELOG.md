@@ -8,6 +8,14 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Issue covers come from the catalog by default.** "Use the file's first page as an owned
+  issue's cover" is now off for new installs: a file's first page is often a variant cover or a
+  recap page, so the series grid and the issue page disagreed and nothing short of finding the
+  setting put them back in step. Installs that saved Settings before keep whichever choice they
+  had; turn it on in Settings → Library for file-accurate covers. (#1)
+
 ## [1.14.0] — 2026-10-19
 
 ### Changed

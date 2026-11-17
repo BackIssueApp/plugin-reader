@@ -18,8 +18,8 @@ the app's `plugins/` directory and restart.
 Nothing required — a **Read** button appears on owned issues once the plugin
 loads. Options live in:
 
-- **Settings → Library** — use the file's first page or ComicVine art as
-  issue covers.
+- **Settings → Library** — use the catalog's cover art (default) or the
+  file's first page as issue covers.
 - **Your profile** — personal reading defaults (mode, direction, fit,
   read-at-%).
 

@@ -2950,15 +2950,16 @@
       },
     });
 
-    // Real covers for owned issues on the volume grid: the file's own first
-    // page beats ComicVine art (and exists even when CV art doesn't) — unless
-    // the user prefers ComicVine art (Settings → Library), or lacks the reader
-    // permission (the prefs fetch 403s → ComicVine art, whose URLs they CAN load).
-    let fileCovers = true; // optimistic default matches the setting's default
+    // Covers for owned issues on the volume grid: the catalog's art unless the
+    // user chose the file's own first page (Settings → Library). Off until the
+    // prefs say otherwise, so the grid never flashes file pages first; a user
+    // without the reader permission (the prefs fetch 403s) keeps catalog art,
+    // whose URLs they CAN load.
+    let fileCovers = false;
     api.registerIssueCover?.((i) =>
       (fileCovers && i.owned && !i.corrupt && i.cv_issue_id) ? `/api/reader/issue/${i.cv_issue_id}/page/0?w=400` : null);
     fetch('/api/reader/prefs').then((r) => (r.ok ? r.json() : { fileCovers: false }))
-      .then((p) => { if (p.fileCovers === false) { fileCovers = false; api.refreshIssueActions?.(); } })
+      .then((p) => { if (p.fileCovers === true) { fileCovers = true; api.refreshIssueActions?.(); } })
       .catch(() => {});
 
     // Settings → Library: the cover preference checkbox (auto-wired via the
