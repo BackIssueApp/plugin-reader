@@ -8,6 +8,8 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-11-17
+
 ### Changed
 
 - **Issue covers come from the catalog by default.** "Use the file's first page as an owned
