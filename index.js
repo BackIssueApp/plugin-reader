@@ -100,7 +100,7 @@ export default function register(api) {
   });
   // Engine tag stored with shared detections so newer models can supersede
   // older cache entries (mirrors the local |ml* cache-key suffix).
-  const engineTag = async () => ((await mlActive()) ? 'ml-box-v2' : 'classical-v1'); // matches the |ml2 cache generation
+  const engineTag = async () => ((await mlActive()) ? 'ml-box-v3' : 'classical-v1'); // matches the |ml3 cache generation
   // Read history is PER USER: core's auth middleware stamps req.user; the
   // open-mode (no accounts) install reads as user 0.
   const uid = (req) => req.user?.id ?? 0;
@@ -381,7 +381,10 @@ export default function register(api) {
             submit.push({ hash: hashes[i], dhash: await pageDhash(sharp, buffer), source: 'human', engine: 'human', panels: ov });
           } catch { /* sharing is best-effort */ }
         }
-      } else if (hit && Array.isArray(hit.panels)) {
+      } else if (hit && Array.isArray(hit.panels) && !(hit.source === 'model' && engine.startsWith('ml-') && hit.engine !== engine)) {
+        // A shared model layout is taken as-is only from this install's own
+        // detector generation (or by an install with no model at all): an
+        // older generation's layout is one this install would now improve on.
         panels = hit.panels;
       } else {
         try {
@@ -444,7 +447,7 @@ export default function register(api) {
       // The engine is part of the cache key: turning the ML model on (or off)
       // recomputes each issue once instead of serving the other engine's rects.
       let fileKey = rawKey;
-      if (await mlActive()) fileKey += `|ml2:${await mlPanels.modelId()}`; // postprocess generation + model content id
+      if (await mlActive()) fileKey += `|ml3:${await mlPanels.modelId()}`; // postprocess generation + model content id
       const rtl = req.query.rtl === '1';
       // Human corrections are keyed to the raw file (no engine suffix) and
       // replace the detector's layout for their pages. Their array order IS

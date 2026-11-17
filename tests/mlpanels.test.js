@@ -71,6 +71,53 @@ test('postprocess: overlapping but page-covering layout (insets) is kept', () =>
   assert.equal(postprocess(dets, logits).length, 2);
 });
 
+test('postprocess: a low-confidence box completes a layout when it fills unclaimed page area', () => {
+  // Three confident panels and a fourth the model found but scored low: the
+  // quadrant it sits in is covered by nothing else, so it is the missing panel.
+  const { dets, logits } = tensors([
+    { x: 0.03, y: 0.03, w: 0.45, h: 0.45, conf: 0.9 },
+    { x: 0.52, y: 0.03, w: 0.45, h: 0.45, conf: 0.8 },
+    { x: 0.03, y: 0.52, w: 0.45, h: 0.45, conf: 0.85 },
+    { x: 0.52, y: 0.52, w: 0.45, h: 0.45, conf: 0.18 },
+  ]);
+  const out = postprocess(dets, logits);
+  assert.equal(out.length, 4);
+  assert.ok(out.some((r) => Math.abs(r.x - 0.52) < 0.001 && Math.abs(r.y - 0.52) < 0.001));
+});
+
+test('postprocess: a low-confidence box over accepted panels is not a panel', () => {
+  const { dets, logits } = tensors([
+    { x: 0.03, y: 0.03, w: 0.94, h: 0.45, conf: 0.9 },
+    { x: 0.03, y: 0.52, w: 0.94, h: 0.45, conf: 0.8 },
+    { x: 0.3, y: 0.3, w: 0.4, h: 0.4, conf: 0.3 }, // straddles both rows
+  ]);
+  assert.equal(postprocess(dets, logits).length, 2);
+});
+
+test('postprocess: a low-confidence box may not swallow an accepted panel', () => {
+  // The big low box is mostly unclaimed, but it contains a confident panel:
+  // it is that panel merged with its neighbours, so it is refused, and what
+  // is left covers too little of the page to be a layout.
+  const { dets, logits } = tensors([
+    { x: 0.03, y: 0.03, w: 0.94, h: 0.17, conf: 0.9 },
+    { x: 0.1, y: 0.4, w: 0.2, h: 0.2, conf: 0.8 },
+    { x: 0.03, y: 0.25, w: 0.94, h: 0.72, conf: 0.2 },
+  ]);
+  assert.deepEqual(postprocess(dets, logits), []);
+});
+
+test('postprocess: a panel-sized hole inside the layout means page mode', () => {
+  const rows = [
+    { x: 0.03, y: 0.03, w: 0.94, h: 0.27, conf: 0.9 },
+    { x: 0.03, y: 0.33, w: 0.45, h: 0.34, conf: 0.8 },  // middle left; middle right is missing
+    { x: 0.03, y: 0.70, w: 0.94, h: 0.27, conf: 0.85 },
+  ];
+  const holed = tensors(rows);
+  assert.deepEqual(postprocess(holed.dets, holed.logits), []);
+  const whole = tensors([...rows, { x: 0.52, y: 0.33, w: 0.45, h: 0.34, conf: 0.15 }]);
+  assert.equal(postprocess(whole.dets, whole.logits).length, 4);
+});
+
 test('postprocess: boxes clamped to the page and specks dropped', () => {
   const { dets, logits } = tensors([
     { x: -0.05, y: -0.05, w: 0.55, h: 1.05, conf: 0.9 }, // pokes off-page

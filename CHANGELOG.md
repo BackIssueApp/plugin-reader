@@ -8,6 +8,16 @@ by the maintainers when changes merge, so concurrent PRs don't conflict here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Guided view shows complete layouts on more pages.** With ML panel detection on, a panel the
+  model found but was unsure of is now kept when it fills a part of the page no other panel
+  covers, and a layout with a panel-sized hole in it reads as a whole page. On 352 hand-checked
+  pages the share with an exactly right layout rose from 55% to 61%, most of it on pages with
+  dark gutters; before, such a page showed a tour that skipped a panel, or no tour at all.
+  Layouts are recomputed once per issue the next time it is opened, and corrections made in
+  the panel studio are kept.
+
 ## [1.14.1] — 2026-11-17
 
 ### Changed

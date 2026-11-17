@@ -15,6 +15,16 @@
 const INPUT_SIZE = 384;
 const CONFIDENCE = 0.4;  // eval'd operating point: 0.5 drops real panels, 0.3 over-detects
 const MAX_PANELS = 24;   // same "no real layout has more" cap as the classical path
+// Below CONFIDENCE a box only ever completes a layout (see assemble()). The
+// values were chosen on hand-verified pages: against the plain 0.4 cut they
+// turned 33 of 352 pages from wrong or page mode into an exact layout and
+// broke 11.
+const FILL_CONFIDENCE = 0.1;    // floor for a completing box
+const FILL_MIN_AREA = 0.02;     // of the page; smaller low-confidence boxes are noise
+const FILL_MAX_CLAIMED = 0.1;   // share of a completing box already covered by accepted panels
+const MIN_COVERAGE = 0.45;      // of the page
+const MIN_HULL_COVERAGE = 0.85; // of the panels' own bounding box
+const GRID = 64;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
@@ -90,49 +100,82 @@ export function postprocess(dets, logits, numClasses = 2) {
   const n = dets.length / 4;
   for (let i = 0; i < n; i++) {
     const conf = 1 / (1 + Math.exp(-logits[i * numClasses]));
-    if (conf < CONFIDENCE) continue;
+    if (conf < FILL_CONFIDENCE) continue;
     const cx = dets[i * 4], cy = dets[i * 4 + 1], w = dets[i * 4 + 2], h = dets[i * 4 + 3];
     const x = Math.max(0, Math.min(1, cx - w / 2));
     const y = Math.max(0, Math.min(1, cy - h / 2));
-    const box = {
+    boxes.push({
       x: round4(x),
       y: round4(y),
       w: round4(Math.max(0, Math.min(1, cx + w / 2)) - x),
       h: round4(Math.max(0, Math.min(1, cy + h / 2)) - y),
       conf,
-    };
-    if (box.w * box.h < 0.005) continue; // speck, not a panel
-    boxes.push(box);
+    });
   }
-  // DETR needs no NMS in theory; in practice near-duplicates appear around the
-  // threshold. Keep the higher-confidence box of any pair overlapping >70%.
-  boxes.sort((a, b) => b.conf - a.conf);
+  return assemble(boxes);
+}
+
+/** Scored boxes ({x,y,w,h,conf}, normalized) → the page's layout, or [] for
+ *  page mode. Exported so the rule can be evaluated on recorded detections.
+ *
+ *  Two passes in one walk down the confidence order. A box at CONFIDENCE or
+ *  above is a panel on its own evidence. Below it, a box is admitted only as
+ *  the missing piece of a layout: the model finds nearly every panel but
+ *  scores some of them low, so a low box that claims page area no accepted
+ *  panel covers is far more often a real panel than noise, while a low box
+ *  on top of accepted panels is a duplicate or a merge of two of them. */
+export function assemble(boxes) {
+  const cand = boxes
+    .filter((b) => b.conf >= FILL_CONFIDENCE && b.w * b.h >= 0.005) // smaller is a speck, not a panel
+    .sort((a, b) => b.conf - a.conf);
+  const cover = new Uint8Array(GRID * GRID);
   const kept = [];
-  for (const b of boxes) {
-    if (!kept.some((k) => iou(k, b) > 0.7)) kept.push(b);
+  for (const b of cand) {
+    // DETR needs no NMS in theory; in practice near-duplicates appear. Keep
+    // the higher-confidence box of any pair overlapping >70%.
+    if (kept.some((k) => iou(k, b) > 0.7)) continue;
+    const c = cells(b);
+    if (b.conf < CONFIDENCE) {
+      if (b.w * b.h < FILL_MIN_AREA) continue;
+      if (covered(cover, c) / area(c) > FILL_MAX_CLAIMED) continue;
+      // A box that swallows an accepted panel is two panels read as one.
+      if (kept.some((k) => shared(c, k.cells) / area(k.cells) > 0.5)) continue;
+    }
+    for (let y = c.y0; y < c.y1; y++) cover.fill(1, y * GRID + c.x0, y * GRID + c.x1);
+    kept.push({ ...b, cells: c });
   }
   if (kept.length < 2 || kept.length > MAX_PANELS) return [];
-  // Completeness gate: a real layout's panels cover most of the page. When
-  // the union of what we detected covers less than half, the model missed
-  // panels (art bleeding across gutters defeats it) — and a guided tour that
-  // silently skips content is worse than reading the whole page.
-  if (unionArea(kept) < 0.45) return [];
+  // Completeness gates: a guided tour that silently skips content is worse
+  // than reading the whole page. The panels must cover close to half the
+  // page, and they must leave no panel-sized hole inside their own bounding
+  // box — a hole there is a panel the model missed.
+  const page = { x0: 0, y0: 0, x1: GRID, y1: GRID };
+  if (covered(cover, page) / area(page) < MIN_COVERAGE) return [];
+  const x0 = Math.min(...kept.map((k) => k.x)), y0 = Math.min(...kept.map((k) => k.y));
+  const x1 = Math.max(...kept.map((k) => k.x + k.w)), y1 = Math.max(...kept.map((k) => k.y + k.h));
+  const hull = cells({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  if (covered(cover, hull) / area(hull) < MIN_HULL_COVERAGE) return [];
   return kept.map(({ x, y, w, h }) => ({ x, y, w, h }));
 }
 
-/** Fraction of the page covered by the union of boxes (32×32 grid — exact
- *  enough for a half-page threshold, immune to overlap double-counting). */
-function unionArea(boxes) {
-  const G = 32;
-  const grid = new Uint8Array(G * G);
-  for (const b of boxes) {
-    const x0 = Math.floor(b.x * G), x1 = Math.min(G, Math.ceil((b.x + b.w) * G));
-    const y0 = Math.floor(b.y * G), y1 = Math.min(G, Math.ceil((b.y + b.h) * G));
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) grid[y * G + x] = 1;
-  }
+// Coverage is counted on a GRID×GRID raster of the page: exact enough for the
+// thresholds above and immune to double-counting where panels overlap.
+function cells(b) {
+  const x0 = Math.min(GRID, Math.round(b.x * GRID)), y0 = Math.min(GRID, Math.round(b.y * GRID));
+  return {
+    x0,
+    y0,
+    x1: Math.min(GRID, Math.max(x0 + 1, Math.round((b.x + b.w) * GRID))),
+    y1: Math.min(GRID, Math.max(y0 + 1, Math.round((b.y + b.h) * GRID))),
+  };
+}
+const area = (c) => Math.max(1, (c.x1 - c.x0) * (c.y1 - c.y0));
+const shared = (a, b) =>
+  Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+function covered(cover, c) {
   let on = 0;
-  for (let i = 0; i < grid.length; i++) on += grid[i];
-  return on / (G * G);
+  for (let y = c.y0; y < c.y1; y++) for (let x = c.x0; x < c.x1; x++) on += cover[y * GRID + x];
+  return on;
 }
 
 function iou(a, b) {
